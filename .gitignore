@@ -1,0 +1,41 @@
+# ---- secrets: never commit ----
+secrets.yaml
+secrets.*.yaml
+firmware/secrets.yaml
+*.key
+*.pem
+*.crt
+*.p12
+.env
+.env.*
+!.env.example
+
+# ---- kubeconfig / cluster creds ----
+kubeconfig*
+*.kubeconfig
+.kube/
+
+# ---- ESPHome ----
+.esphome/
+firmware/.esphome/
+*.bin
+*.elf
+*.map
+build/
+
+# ---- Go ----
+mapper/bin/
+esphome-mapper
+*.test
+*.out
+vendor/
+
+# ---- ops output ----
+debug-*/
+*.log
+
+# ---- macOS / editors ----
+.DS_Store
+.idea/
+.vscode/
+*.swp
