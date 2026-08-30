@@ -157,3 +157,115 @@ spec:
           dataType: string
           topic: switch/speaker_amp/state
           commandTopic: switch/speaker_amp/command
+
+---
+# Second board. Same model, same protocol — only the topic prefix differs.
+#
+# Note what this is NOT: both boards are on WiFi with IPs, so both are plain
+# esphome-mqtt devices. This proves the mapper handles more than one device and
+# gives `kubectl get devices` two rows, but it is still V1 shaped.
+#
+# The V2 demo is w10-b modelled with protocol: lora and NO IP, reached through
+# w10-a as a gateway. That needs a second driver and is not this.
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: w10-b
+  namespace: default
+  labels:
+    model: esphome-w10
+    role: bench
+spec:
+  deviceModelRef:
+    name: esphome-w10
+
+  # Which edge node runs the mapper that reaches this device. Note the device
+  # is NOT the node — the node is the thing running EdgeCore, and the device
+  # hangs off it. That distinction is what lets a battery node with no agent
+  # still be a first-class object later.
+  nodeName: lima-edge
+
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: w10-b
+      # Retained birth/will from the ESPHome config. Drives GetDeviceStates.
+      statusTopic: w10-b/status
+
+  properties:
+    - name: temperature
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/temperature/state
+
+    - name: humidity
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/humidity/state
+
+    - name: link_rssi
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/link_rssi/state
+
+    - name: satellites
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: int
+          topic: sensor/satellites/state
+
+    - name: ip_address
+      collectCycle: 60000            # ms
+      reportCycle: 60000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text_sensor/ip_address/state
+
+    - name: tone_trigger
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
+      reportToCloud: true
+      desired:
+        value: "0"
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/tone_trigger/state
+          commandTopic: text/tone_trigger/command
+
+    - name: amp_enable
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
+      reportToCloud: true
+      desired:
+        value: "OFF"
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: switch/speaker_amp/state
+          commandTopic: switch/speaker_amp/command

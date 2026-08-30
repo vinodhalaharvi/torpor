@@ -250,6 +250,16 @@ cloudcore-status: ## Everything in the kubeedge namespace
 devices: ## List devices
 	kubectl get devices -A -o wide
 
+.PHONY: fleet
+fleet: ## Every device, every twin, one table
+	@printf '\n  %-8s %-18s %-12s %s\n' DEVICE PROPERTY REPORTED DESIRED
+	@printf '  %-8s %-18s %-12s %s\n' -------- ------------------ ------------ -------
+	@for d in $$(kubectl get devices -n $(NAMESPACE) -o jsonpath='{.items[*].metadata.name}'); do \
+	  kubectl get devicestatus $$d -n $(NAMESPACE) -o jsonpath=\
+'{range .status.twins[*]}{"'"$$d"'"}{"\t"}{.propertyName}{"\t"}{.reported.value}{"\t"}{.observedDesired.value}{"\n"}{end}' 2>/dev/null \
+	    | awk -F'\t' '{printf "  %-8s %-18s %-12s %s\n", $$1, $$2, $$3, $$4}'; \
+	done; printf '\n'
+
 .PHONY: models
 models: ## List device models
 	kubectl get devicemodels -A
@@ -288,7 +298,13 @@ rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 .PHONY: set
 tone: ## Play a tone on the board via kubectl — the V1 demo
 	@n=$$(date +%s); $(MAKE) --no-print-directory set PROPERTY=tone_trigger VALUE=$$n; \
-	  printf '  patched tone_trigger=%s — listen\n' "$$n"
+	  printf '  patched tone_trigger=%s on $(DEVICE) — listen\n' "$$n"
+
+.PHONY: tone-all
+tone-all: ## Play a tone on every device in the fleet, one after another
+	@for d in $$(kubectl get devices -n $(NAMESPACE) -o jsonpath='{.items[*].metadata.name}'); do \
+	  $(MAKE) --no-print-directory tone DEVICE=$$d; sleep 6; \
+	done
 
 .PHONY: v1
 v1: ## Watch desired and reported converge on amp_enable
