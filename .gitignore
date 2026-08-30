@@ -39,6 +39,11 @@ debug-*/
 .idea/
 .vscode/
 *.swp
+# KubeEdge sources the mapper is built against. Both are upstream clones the
+# generator expects as siblings; neither is ours to version. Reproduce with:
+#   cd mapper && git clone https://github.com/kubeedge/mapper-framework.git \
+#                && git clone https://github.com/kubeedge/api.git
 mapper/mapper-framework/
+mapper/api/
 __pycache__/
 *.pyc
