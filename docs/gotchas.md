@@ -159,3 +159,16 @@ mid-operation.
 
 Whatever a rollout gates on has to be a consequence of the change, not an echo
 of the request.
+
+**ESPHome will flash a stale binary without saying so.** `esphome run` reuses a
+cached build when it thinks nothing changed, and reports `OTA successful` for
+firmware you did not write. The only tell is the compile timestamp in the boot
+banner:
+
+```
+[I][app:151]: ESPHome version 2026.8.1 compiled on 2026-08-30 15:47:48
+```
+
+If that predates your last `git pull`, you flashed the old thing. `make
+clean-fw` clears both caches. Check the timestamp after every flash that is
+supposed to change behaviour — it costs a second and it cost an hour once.
