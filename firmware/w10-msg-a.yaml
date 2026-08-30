@@ -415,22 +415,30 @@ text:
     # Publishing the state as its first step preserves the echo — and therefore
     # convergence — while the rest of the action list actually runs.
     set_action:
-      # publish_state directly, not text.set — text.set would re-enter
-      # set_action and recurse. The C++ call publishes without re-triggering.
+      # The device deduplicates, because the controller does not.
+      #
+      # The mapper writes desired state on every collect cycle, not only when
+      # it changes, and set_action runs on every write. Without this guard the
+      # same token replays the tone every ten seconds, forever. That is the
+      # exact failure the trigger-property pattern exists to prevent, arriving
+      # from the other direction: idempotence has to live at the device,
+      # because nothing upstream guarantees a single write.
+      #
+      # Generalises directly to V3 — a rollout property that re-triggers a
+      # flash on every reconcile would be considerably worse than a tone.
       - lambda: |-
-          ESP_LOGI("tone", "set_action fired, x=[%s] len=%d", x.c_str(), (int) x.size());
+          static std::string last_token = "";
           id(tone_trigger).publish_state(x);
-      # Amp on BEFORE the tone, off after — same order as the Test Tone button.
-      - switch.turn_on: amp_enable
-      # No guard. The previous `if (x != "0" && !x.empty())` was the last
-      # difference from the Test Tone button, which plays reliably. If this
-      # version sounds, the comparison was silently false and a correct guard
-      # goes back in; if it does not, rtttl cannot be driven from set_action
-      # and the trigger should press the button instead.
-      - lambda: |-
-          ESP_LOGI("tone", "about to play");
+          if (x.empty() || x == "0" || x == last_token) {
+            return;
+          }
+          last_token = x;
+          id(amp_enable).turn_on();
           id(tones).play("test:d=4,o=5,b=100:c,e,g,c6");
-      - delay: 4s
+      # Long enough for the tune plus the speaker's own stop sequence. The amp
+      # is left on if the tone was skipped, which is harmless — it is switched
+      # off unconditionally below.
+      - delay: 5s
       - switch.turn_off: amp_enable
 
 button:

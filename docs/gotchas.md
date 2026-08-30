@@ -114,3 +114,48 @@ set_action:
       state: !lambda 'return x;'
   - # ...the actions that should actually run
 ```
+
+---
+
+## Trigger properties
+
+**The mapper writes desired state on every collect cycle, not on change.**
+`set_action` therefore runs on every write, and an actuator driven from a
+desired value fires repeatedly forever — the same token replayed the tone every
+ten seconds until the device started deduplicating.
+
+Idempotence has to live **at the device**. Nothing upstream guarantees a single
+write:
+
+```yaml
+- lambda: |-
+    static std::string last_token = "";
+    id(trigger).publish_state(x);
+    if (x.empty() || x == last_token) return;
+    last_token = x;
+    // ...the action
+```
+
+This matters far more for V3 than for a tone. A rollout property that
+re-triggers a flash on every reconcile would be a very bad afternoon.
+
+**Do not put a device-local transient under fleet reconciliation.** The amp is
+switched on by the tone action and off again afterwards. It was also a Device
+property with `desired: "OFF"`, so the mapper wrote `OFF` on its own cycle and
+switched the amp off 100 ms into a 2.5 second tone — everything working exactly
+as designed, fighting itself.
+
+Anything the device manipulates transiently during an operation should not
+simultaneously be declared desired state, or the controller will stomp on it
+mid-operation.
+
+**Two rules for health gates, both learned the hard way:**
+
+- *Convergence is not proof of effect.* `optimistic: true` echoed the commanded
+  value back with the automation never running. Twin converged, broker showed a
+  clean round trip, `kubectl` was happy, hardware did nothing.
+- *A converged property may still be actively driving the device.* Desired
+  equalled reported the whole time the tone was looping.
+
+Whatever a rollout gates on has to be a consequence of the change, not an echo
+of the request.
