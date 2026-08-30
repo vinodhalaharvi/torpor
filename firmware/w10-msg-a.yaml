@@ -417,13 +417,19 @@ text:
     set_action:
       # publish_state directly, not text.set — text.set would re-enter
       # set_action and recurse. The C++ call publishes without re-triggering.
-      - lambda: 'id(tone_trigger).publish_state(x);'
+      - lambda: |-
+          ESP_LOGI("tone", "set_action fired, x=[%s] len=%d", x.c_str(), (int) x.size());
+          id(tone_trigger).publish_state(x);
       # Amp on BEFORE the tone, off after — same order as the Test Tone button.
       - switch.turn_on: amp_enable
+      # No guard. The previous `if (x != "0" && !x.empty())` was the last
+      # difference from the Test Tone button, which plays reliably. If this
+      # version sounds, the comparison was silently false and a correct guard
+      # goes back in; if it does not, rtttl cannot be driven from set_action
+      # and the trigger should press the button instead.
       - lambda: |-
-          if (x != "0" && !x.empty()) {
-            id(tones).play("test:d=4,o=5,b=100:c,e,g,c6");
-          }
+          ESP_LOGI("tone", "about to play");
+          id(tones).play("test:d=4,o=5,b=100:c,e,g,c6");
       - delay: 4s
       - switch.turn_off: amp_enable
 
