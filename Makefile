@@ -364,6 +364,15 @@ mapper-build: ## Build the mapper for linux/arm64 and copy it into the VM
 	limactl shell $(VM) -- sudo install -m 0755 /tmp/$(MAPPER_BIN) /usr/local/bin/$(MAPPER_BIN)
 
 .PHONY: mapper-run
+mapper-install: mapper-build ## Install the mapper as a systemd unit in the VM
+	limactl copy deploy/esphome-mapper.service $(VM):/tmp/
+	limactl shell $(VM) -- sudo install -m0644 /tmp/esphome-mapper.service /etc/systemd/system/
+	limactl shell $(VM) -- sudo systemctl daemon-reload
+	limactl shell $(VM) -- sudo systemctl enable --now esphome-mapper
+	@sleep 3
+	limactl shell $(VM) -- systemctl is-active esphome-mapper
+
+.PHONY: mapper-install mapper-run
 mapper-run: ## Run the mapper in the foreground (dev loop)
 	limactl shell $(VM) -- sudo /usr/local/bin/$(MAPPER_BIN) --v=4
 

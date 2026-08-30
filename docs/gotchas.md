@@ -180,3 +180,19 @@ looked exactly like a radio problem, and cost several rounds of chasing one.
 
 `make flash-b` now depends on `make gen-b`, so regenerating is not a thing
 anyone has to remember. If a check can be a dependency, make it a dependency.
+
+**A sensor reads NaN until its first sample.** ESPHome sensor states start as
+NaN, so anything that transmits on an interval shorter than the sensor's own
+update interval will send garbage once after every boot. Cast to `uint8` that
+is 255; to `int16` it is -1.
+
+The gateway relayed it faithfully and Kubernetes reported it faithfully:
+
+```json
+{"type":2,"from":2,"temperature":-0.1,"humidity":255,"satellites":255}
+```
+
+Nothing downstream can tell that from a real reading. The check belongs at the
+device, which is the only place that knows whether the number means anything —
+the same conclusion as trigger-property idempotence, reached from a different
+direction.
