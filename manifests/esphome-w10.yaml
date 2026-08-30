@@ -73,7 +73,8 @@ spec:
 
   properties:
     - name: temperature
-      collectCycle: 10000000000      # 10s, in nanoseconds
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
       reportToCloud: true
       visitors:
         protocolName: esphome-mqtt
@@ -82,7 +83,8 @@ spec:
           topic: sensor/temperature/state
 
     - name: humidity
-      collectCycle: 10000000000
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
       reportToCloud: true
       visitors:
         protocolName: esphome-mqtt
@@ -91,7 +93,8 @@ spec:
           topic: sensor/humidity/state
 
     - name: link_rssi
-      collectCycle: 30000000000      # 30s
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
       reportToCloud: true
       visitors:
         protocolName: esphome-mqtt
@@ -100,7 +103,8 @@ spec:
           topic: sensor/link_rssi/state
 
     - name: satellites
-      collectCycle: 30000000000
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
       reportToCloud: true
       visitors:
         protocolName: esphome-mqtt
@@ -109,7 +113,8 @@ spec:
           topic: sensor/satellites/state
 
     - name: ip_address
-      collectCycle: 60000000000      # 60s
+      collectCycle: 60000            # ms
+      reportCycle: 60000             # ms
       reportToCloud: true
       visitors:
         protocolName: esphome-mqtt
@@ -118,7 +123,8 @@ spec:
           topic: text_sensor/ip_address/state
 
     - name: amp_enable
-      collectCycle: 10000000000
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
       reportToCloud: true
       desired:
         value: "OFF"
