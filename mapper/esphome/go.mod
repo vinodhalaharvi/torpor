@@ -9,7 +9,6 @@ require (
 	github.com/influxdata/influxdb-client-go/v2 v2.13.0
 	github.com/kubeedge/api v0.0.0
 	github.com/kubeedge/mapper-framework v0.0.0
-	github.com/sailorvii/goav v0.1.4
 	github.com/taosdata/driver-go/v3 v3.5.1
 	go.opentelemetry.io/otel v1.30.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.30.0
