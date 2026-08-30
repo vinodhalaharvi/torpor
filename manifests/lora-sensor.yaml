@@ -1,0 +1,124 @@
+---
+# A device with no IP address.
+#
+# w10-b is physically identical to w10-a and is on WiFi today. Modelling it as
+# a LoRa node is deliberate: it stands in for the battery field nodes that
+# cannot run an agent, cannot be addressed, and are heard only when they choose
+# to transmit. Everything below works the same when the WiFi is unplugged.
+#
+# Note what is absent — there is no address for this device anywhere in this
+# file. There is a gateway and a one-byte node id.
+apiVersion: devices.kubeedge.io/v1beta1
+kind: DeviceModel
+metadata:
+  name: lora-sensor
+  namespace: default
+spec:
+  protocol: esphome-mqtt
+  properties:
+    - name: temperature
+      description: SHT41 temperature, relayed over 915 MHz
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: "°C"
+
+    - name: humidity
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: "%"
+
+    - name: satellites
+      type: INT
+      accessMode: ReadOnly
+
+    # Link quality measured at the gateway, not at the node. The node has no
+    # idea how well it is being heard.
+    - name: rssi
+      description: received signal strength at the gateway
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: "dBm"
+
+    - name: snr
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: "dB"
+
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-01
+  namespace: default
+  labels:
+    model: lora-sensor
+    role: field-sensor
+    transport: lora
+spec:
+  deviceModelRef:
+    name: lora-sensor
+
+  # The edge node running the mapper. Not where the device is — the device is
+  # wherever its radio reaches, and nothing here knows or cares.
+  nodeName: lima-edge
+
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+
+      # No topicPrefix. This device has no topics; it has a gateway.
+      gateway: w10-a
+      nodeID: 2
+
+      # How often this node is expected to speak. Silence shorter than this is
+      # normal. Silence longer than staleMultiplier x this is Unreachable.
+      #
+      # Per-device because a mains gateway and a battery node checking in daily
+      # are both perfectly healthy at wildly different rates — which is the
+      # thing Kubernetes has no way to express about a Node.
+      expectedIntervalSeconds: 30
+      staleMultiplier: 3
+
+  properties:
+    # Visitor topics are bare field names, not topic paths. There is no
+    # hierarchy to address: the frame is the entire namespace.
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: temperature}
+
+    - name: humidity
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: humidity}
+
+    - name: satellites
+      collectCycle: 30000
+      reportCycle: 30000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: int, topic: satellites}
+
+    - name: rssi
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: rssi}
+
+    - name: snr
+      collectCycle: 30000
+      reportCycle: 30000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: snr}

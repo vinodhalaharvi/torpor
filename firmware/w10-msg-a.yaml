@@ -318,19 +318,37 @@ sx126x:
               break;
           }
 
-      # Mirror inbound LoRa traffic onto MQTT. This is the first hint of what
-      # the V2 gateway becomes: a LoRa node with no IP, surfaced to the fleet
-      # controller through a board that has one.
+      # This board is the gateway. Every LoRa frame it hears is republished on
+      # MQTT with the payload already decoded, because the node that sent it
+      # has no IP and cannot be reached any other way.
+      #
+      # The mapper subscribes here and routes by "from". That is the whole
+      # addressing scheme: a field node is a sender id inside a frame relayed
+      # by a board that happens to have WiFi.
+      #
+      # Decoded here rather than in Go because the wire format is defined by
+      # this file. Two places that both know byte 2 is temp*10 low byte is one
+      # place too many.
       - mqtt.publish:
           topic: ${node_name}/lora/rx
           retain: false
           payload: !lambda |-
-            char buf[128];
-            snprintf(buf, sizeof(buf),
-                     "{\"type\":%u,\"from\":%u,\"rssi\":%.0f,\"snr\":%.1f}",
-                     x.size() > 0 ? x[0] : 0,
-                     x.size() > 1 ? x[1] : 0,
-                     id(last_rssi), id(last_snr));
+            char buf[256];
+            const uint8_t type = x.size() > 0 ? x[0] : 0;
+            const uint8_t from = x.size() > 1 ? x[1] : 0;
+            if (type == 0x02 && x.size() >= 6) {
+              // TELEM: temp*10 int16 LE, humidity uint8, sats uint8
+              int16_t t = (int16_t)(x[2] | (x[3] << 8));
+              snprintf(buf, sizeof(buf),
+                       "{\"type\":%u,\"from\":%u,\"rssi\":%.0f,\"snr\":%.1f,"
+                       "\"temperature\":%.1f,\"humidity\":%u,\"satellites\":%u}",
+                       type, from, id(last_rssi), id(last_snr),
+                       t / 10.0f, x[4], x[5]);
+            } else {
+              snprintf(buf, sizeof(buf),
+                       "{\"type\":%u,\"from\":%u,\"rssi\":%.0f,\"snr\":%.1f}",
+                       type, from, id(last_rssi), id(last_snr));
+            }
             return std::string(buf);
 
       # Alert tones. The amp is switched on, the tone plays, then it goes back
@@ -498,8 +516,31 @@ button:
       - delay: 4s
       - switch.turn_off: amp_enable
 
-# Auto-reply to a ping
 interval:
+  # Broadcast own telemetry, unprompted.
+  #
+  # Not a poll — a poll would need the gateway to address each node and each
+  # node to answer, which doubles the airtime and assumes the node is awake
+  # when asked. A node that transmits on its own schedule is the model that
+  # survives deep sleep, and it is what a battery field node will actually do.
+  #
+  # 30s at SF9 for a 6-byte frame is about 0.6% duty cycle, inside the 1%
+  # limit. On battery this becomes hours, and that is the number the fleet
+  # controller has to reason about, not this one.
+  - interval: 30s
+    then:
+      - lambda: 'id(tx_count)++;'
+      - sx126x.send_packet:
+          id: radio
+          data: !lambda |-
+            int16_t t = (int16_t)(id(temp).state * 10);
+            return std::vector<uint8_t>{
+              0x02, (uint8_t) ${node_id},
+              (uint8_t)(t & 0xFF), (uint8_t)((t >> 8) & 0xFF),
+              (uint8_t) id(humidity_s).state,
+              (uint8_t) id(sats).state };
+
+  # Auto-reply to a ping
   - interval: 500ms
     then:
       - lambda: |-

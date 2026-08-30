@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -54,13 +55,24 @@ func (c *CustomizedClient) InitDevice() error {
 	if c.Broker == "" {
 		return fmt.Errorf("esphome-mqtt: broker is required in protocol configData")
 	}
-	if c.TopicPrefix == "" {
-		return fmt.Errorf("esphome-mqtt: topicPrefix is required in protocol configData")
+	// A LoRa device has no topicPrefix of its own — it has a gateway and a
+	// node id. That asymmetry is the point: the Device object describes how to
+	// reach the device, and for a device with no IP that means describing
+	// something else entirely.
+	if c.Gateway == "" && c.TopicPrefix == "" {
+		return fmt.Errorf("esphome-mqtt: one of topicPrefix or gateway is required")
+	}
+	if c.Gateway != "" && c.NodeID == 0 {
+		return fmt.Errorf("esphome-mqtt: gateway %q given without nodeID", c.Gateway)
 	}
 
 	clientID := c.ClientID
 	if clientID == "" {
-		clientID = "torpor-mapper-" + c.TopicPrefix
+		if c.Gateway != "" {
+			clientID = fmt.Sprintf("torpor-mapper-%s-via-%s", c.subject(), c.Gateway)
+		} else {
+			clientID = "torpor-mapper-" + c.TopicPrefix
+		}
 	}
 
 	// SetConnectRetry / SetConnectRetryInterval are paho v1.3+; the framework
@@ -81,12 +93,18 @@ func (c *CustomizedClient) InitDevice() error {
 	// Re-subscribe on every (re)connect. AutoReconnect restores the TCP
 	// session but not the subscriptions when CleanSession is true.
 	opts.SetOnConnectHandler(func(cl mqtt.Client) {
-		filter := c.TopicPrefix + "/#"
-		if token := cl.Subscribe(filter, 0, c.onMessage); token.Wait() && token.Error() != nil {
+		filter, handler := c.TopicPrefix+"/#", c.onMessage
+		if c.Gateway != "" {
+			// Subscribe to the gateway's relay topic, not to anything belonging
+			// to this device — it has no topics of its own because it has no IP.
+			filter, handler = c.Gateway+"/lora/rx", c.onLoRaFrame
+		}
+		if token := cl.Subscribe(filter, 0, handler); token.Wait() && token.Error() != nil {
 			klog.Errorf("esphome-mqtt: subscribe %s failed: %v", filter, token.Error())
 			return
 		}
-		klog.Infof("esphome-mqtt: connected to %s, subscribed to %s", c.Broker, filter)
+		klog.Infof("esphome-mqtt: %s connected to %s, subscribed to %s",
+			c.subject(), c.Broker, filter)
 	})
 
 	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
@@ -131,6 +149,64 @@ func (c *CustomizedClient) onMessage(_ mqtt.Client, msg mqtt.Message) {
 	klog.V(4).Infof("esphome-mqtt: %s = %s", topic, payload)
 }
 
+// subject names this device for logging: its own prefix, or node N via gateway.
+func (c *CustomizedClient) subject() string {
+	if c.Gateway != "" {
+		return fmt.Sprintf("node%d@%s", c.NodeID, c.Gateway)
+	}
+	return c.TopicPrefix
+}
+
+// loRaFrame is what the gateway firmware publishes on <gateway>/lora/rx. The
+// payload is decoded on the board rather than here, because the wire format is
+// defined in the ESPHome config and two decoders would drift.
+type loRaFrame struct {
+	Type       int      `json:"type"`
+	From       int      `json:"from"`
+	RSSI       *float64 `json:"rssi"`
+	SNR        *float64 `json:"snr"`
+	Temperature *float64 `json:"temperature"`
+	Humidity   *float64 `json:"humidity"`
+	Satellites *float64 `json:"satellites"`
+}
+
+// onLoRaFrame caches a frame if it came from this device's node id.
+//
+// Every LoRa device on a gateway sees every frame that gateway hears, and each
+// filters for its own sender id. Wasteful with many devices; correct, and the
+// alternative is a shared subscription with a fan-out the framework has no
+// place to hold.
+func (c *CustomizedClient) onLoRaFrame(_ mqtt.Client, msg mqtt.Message) {
+	var f loRaFrame
+	if err := json.Unmarshal(msg.Payload(), &f); err != nil {
+		klog.V(4).Infof("esphome-mqtt: undecodable lora frame on %s: %v", msg.Topic(), err)
+		return
+	}
+	if f.From != c.NodeID {
+		return // another node's frame
+	}
+
+	now := time.Now()
+	c.cacheMu.Lock()
+	set := func(key string, v *float64) {
+		if v == nil {
+			return
+		}
+		c.values[key] = strconv.FormatFloat(*v, 'f', -1, 64)
+		c.stamps[key] = now
+	}
+	set("temperature", f.Temperature)
+	set("humidity", f.Humidity)
+	set("satellites", f.Satellites)
+	set("rssi", f.RSSI)
+	set("snr", f.SNR)
+	// Any frame at all is proof of life, whatever it carried.
+	c.lastFrame = now
+	c.cacheMu.Unlock()
+
+	klog.V(4).Infof("esphome-mqtt: %s frame type=%d rssi=%v", c.subject(), f.Type, f.RSSI)
+}
+
 // GetDeviceData returns the last value seen for the visitor's topic.
 //
 // It does not go to the device. There is nothing to ask — ESPHome pushes on
@@ -138,7 +214,13 @@ func (c *CustomizedClient) onMessage(_ mqtt.Client, msg mqtt.Message) {
 // real error at V0 (the board is on WiFi and should be publishing) but will be
 // an ordinary condition at V2 (the node is asleep).
 func (c *CustomizedClient) GetDeviceData(visitor *VisitorConfig) (interface{}, error) {
-	topic := c.resolve(visitor, visitor.Topic)
+	topic := visitor.Topic
+	if c.Gateway == "" {
+		topic = c.resolve(visitor, visitor.Topic)
+	}
+	// For a LoRa device the visitor's topic is a bare field name — temperature,
+	// rssi — because there is no topic hierarchy to address. The frame is the
+	// whole namespace.
 	if topic == "" {
 		return nil, fmt.Errorf("esphome-mqtt: visitor has no topic")
 	}
@@ -188,6 +270,15 @@ func convert(raw string, dataType string) (interface{}, error) {
 
 // DeviceDataWrite publishes to the property's command topic. This is V1.
 func (c *CustomizedClient) DeviceDataWrite(visitor *VisitorConfig, deviceMethodName string, propertyName string, data interface{}) error {
+	// Refuse, do not attempt and time out. The gateway firmware has no
+	// downlink path yet, so a write to a LoRa node cannot succeed — and an
+	// immediate, explicit refusal is the behaviour the whole project argues
+	// for. Attempting it and reporting a timeout six hours later is what the
+	// commercial platforms do.
+	if c.Gateway != "" {
+		return fmt.Errorf("esphome-mqtt: %s is reached over lora, which has no write path: "+
+			"property %q is read-only on this transport", c.subject(), propertyName)
+	}
 	topic := c.resolve(visitor, visitor.CommandTopic)
 	if topic == "" {
 		return fmt.Errorf("esphome-mqtt: property %q has no commandTopic; it is read-only", propertyName)
@@ -256,6 +347,42 @@ func (c *CustomizedClient) StopDevice() error {
 func (c *CustomizedClient) GetDeviceStates() (string, error) {
 	if c.client == nil || !c.client.IsConnected() {
 		return common.DeviceStatusUnknown, nil
+	}
+
+	// A LoRa node has no birth or will message — nothing on the far end can
+	// announce itself, and nothing notices when it stops. State is inferred
+	// entirely from how long it has been since a frame arrived, measured
+	// against how often this particular node is expected to speak.
+	//
+	// This is where Sleeping ought to live. KubeEdge has no such status, so
+	// silence within the expected window reports ok — the node is healthy and
+	// quiet, which is the truth even if the vocabulary is missing. The real
+	// state belongs in a CRD of our own, and this comment is the placeholder
+	// for it.
+	if c.Gateway != "" {
+		c.cacheMu.RLock()
+		last := c.lastFrame
+		c.cacheMu.RUnlock()
+
+		if last.IsZero() {
+			return common.DeviceStatusUnknown, nil
+		}
+		expected := time.Duration(c.ExpectedIntervalSeconds) * time.Second
+		if expected <= 0 {
+			expected = 60 * time.Second
+		}
+		mult := c.StaleMultiplier
+		if mult <= 0 {
+			mult = 3
+		}
+		age := time.Since(last)
+		if age > expected*time.Duration(mult) {
+			klog.V(3).Infof("esphome-mqtt: %s unreachable, last frame %s ago (expected every %s)",
+				c.subject(), age.Round(time.Second), expected)
+			return common.DeviceStatusDisCONN, nil
+		}
+		// Healthy and quiet. Sleeping, in a vocabulary that does not have it.
+		return common.DeviceStatusOK, nil
 	}
 
 	c.cacheMu.RLock()
