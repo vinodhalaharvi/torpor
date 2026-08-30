@@ -93,3 +93,24 @@ publishes the string verbatim.
 both say 1262. It works, but the 1261 tops out around +15 dBm against the
 1262's +22, so a config asking for `pa_power: 22` is not getting it. First
 thing to check if LoRa range disappoints.
+
+**`optimistic: true` skips `on_value` for commanded values.** On a template
+`text`, optimistic mode publishes the commanded value straight back to the
+state topic without running the automation. The twin converges perfectly and
+nothing happens — the worst possible failure mode, because every signal says
+success.
+
+Setting the same entity from the web UI *does* run `on_value`, which is what
+isolates it: if the web UI works and MQTT does not, suspect optimistic mode.
+
+Use `set_action` instead. It is the hook for externally-commanded values, and
+publishing the state as its first step keeps the echo that convergence depends
+on:
+
+```yaml
+set_action:
+  - text.template.publish:
+      id: tone_trigger
+      state: !lambda 'return x;'
+  - # ...the actions that should actually run
+```

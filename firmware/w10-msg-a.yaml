@@ -402,12 +402,22 @@ text:
     name: "Tone Trigger"
     id: tone_trigger
     mode: text
-    optimistic: true
     min_length: 0
     max_length: 32
     initial_value: "0"
-    on_value:
-      # Flat action list, matching the Test Tone button that is known to work.
+    # `optimistic: true` is deliberately absent. It short-circuits: the entity
+    # publishes the commanded value straight back to the state topic without
+    # running on_value, so the twin converged perfectly and the tone never
+    # played. Setting the value from the web UI took a different path and did
+    # play, which is what isolated it.
+    #
+    # set_action is the documented hook for an externally-commanded value.
+    # Publishing the state as its first step preserves the echo — and therefore
+    # convergence — while the rest of the action list actually runs.
+    set_action:
+      - text.template.publish:
+          id: tone_trigger
+          state: !lambda 'return x;'
       - switch.turn_on: amp_enable
       - lambda: |-
           if (x != "0" && !x.empty()) {
