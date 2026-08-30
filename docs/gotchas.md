@@ -172,3 +172,11 @@ banner:
 If that predates your last `git pull`, you flashed the old thing. `make
 clean-fw` clears both caches. Check the timestamp after every flash that is
 supposed to change behaviour — it costs a second and it cost an hour once.
+
+**A generated file is only correct until the source changes.** `w10-msg-b.yaml`
+was generated from A, then A gained the LoRa decoder and the 30s broadcast and
+B did not. B flashed cleanly, ran, and quietly lacked half the feature — which
+looked exactly like a radio problem, and cost several rounds of chasing one.
+
+`make flash-b` now depends on `make gen-b`, so regenerating is not a thing
+anyone has to remember. If a check can be a dependency, make it a dependency.

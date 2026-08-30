@@ -393,7 +393,7 @@ flash-a: ## OTA flash w10-a by IP — no port menu, no mDNS
 	cd $(ESPHOME_DIR) && esphome run w10-msg-a.yaml --device $(W10A_IP)
 
 .PHONY: flash-b
-flash-b: ## OTA flash w10-b by IP
+flash-b: gen-b ## OTA flash w10-b by IP — regenerates from A first
 	cd $(ESPHOME_DIR) && esphome run w10-msg-b.yaml --device $(W10B_IP)
 
 .PHONY: gen-b
