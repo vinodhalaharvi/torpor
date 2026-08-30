@@ -33,9 +33,14 @@ type CustomizedClient struct {
 	client mqtt.Client
 
 	cacheMu sync.RWMutex
-	values  map[string]string    // full topic -> last payload
-	stamps  map[string]time.Time // full topic -> when it arrived
+	values  map[string]string    // topic (or lora field name) -> last payload
+	stamps  map[string]time.Time // same key -> when it arrived
 	status  string               // last retained payload on the status topic
+
+	// lastFrame is when any LoRa frame from this node last arrived. Unused for
+	// directly-addressed devices; for a LoRa node it is the only liveness
+	// signal there is.
+	lastFrame time.Time
 }
 
 type ProtocolConfig struct {
@@ -61,6 +66,33 @@ type ConfigData struct {
 	// ESPHome config publishes a retained birth/will message. That retained
 	// LWT is what lets the mapper distinguish "gone" from "just quiet".
 	StatusTopic string `json:"statusTopic,omitempty"`
+
+	// ---- LoRa fields. Set these and the device is reached through a gateway
+	// rather than addressed directly.
+
+	// Gateway is the topicPrefix of the board relaying for this device, e.g.
+	// "w10-a". Its /lora/rx topic carries every frame it hears.
+	//
+	// This is the field that makes a device with no IP addressable. The Device
+	// object points at a gateway; nothing points at the device.
+	Gateway string `json:"gateway,omitempty"`
+
+	// NodeID is the sender id in byte 1 of the wire protocol. The whole
+	// addressing scheme for the mesh is one byte.
+	NodeID int `json:"nodeID,omitempty"`
+
+	// ExpectedIntervalSeconds is how often this node is expected to transmit.
+	// Silence shorter than this is normal; silence longer than
+	// StaleMultiplier x this is Unreachable.
+	//
+	// This is the number that distinguishes Sleeping from broken, and it is
+	// per-device because a mains gateway and a battery node checking in daily
+	// are both healthy at wildly different rates.
+	ExpectedIntervalSeconds int `json:"expectedIntervalSeconds,omitempty"`
+
+	// StaleMultiplier defaults to 3. Missing three check-ins is a judgement
+	// call, not a fact — which is why it is configurable.
+	StaleMultiplier int `json:"staleMultiplier,omitempty"`
 
 	// ConnectTimeoutSeconds bounds the initial connect. Default 10.
 	ConnectTimeoutSeconds int `json:"connectTimeoutSeconds,omitempty"`

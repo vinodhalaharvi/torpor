@@ -289,6 +289,23 @@ converge: ## Devices whose reported state has not caught up to desired
 apply: ## Apply device manifests from ./manifests
 	kubectl apply -f manifests/
 
+.PHONY: v2
+v2: ## The two-transport view — one device with an IP, one without
+	@printf '\n  %-10s %-14s %-10s %-9s %s\n' NAME MODEL TRANSPORT LAST-SEEN TEMPERATURE
+	@printf '  %-10s %-14s %-10s %-9s %s\n' ---------- -------------- ---------- --------- -----------
+	@for d in $$(kubectl get devices -n $(NAMESPACE) -o jsonpath='{.items[*].metadata.name}'); do \
+	  m=$$(kubectl get device $$d -n $(NAMESPACE) -o jsonpath='{.spec.deviceModelRef.name}'); \
+	  t=$$(kubectl get device $$d -n $(NAMESPACE) -o jsonpath='{.metadata.labels.transport}'); \
+	  [ -n "$$t" ] || t=wifi; \
+	  v=$$(kubectl get devicestatus $$d -n $(NAMESPACE) \
+	       -o jsonpath='{.status.twins[?(@.propertyName=="temperature")].reported.value}' 2>/dev/null); \
+	  ts=$$(kubectl get devicestatus $$d -n $(NAMESPACE) \
+	       -o jsonpath='{.status.twins[?(@.propertyName=="temperature")].reported.metadata.timestamp}' 2>/dev/null); \
+	  age=-; \
+	  if [ -n "$$ts" ]; then age=$$(( ( $$(date +%s) - $$ts / 1000 ) ))s; fi; \
+	  printf '  %-10s %-14s %-10s %-9s %s\n' "$$d" "$$m" "$$t" "$$age" "$$v"; \
+	done; printf '\n'
+
 .PHONY: rbac
 rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 	kubectl apply -f manifests/cloudcore-devicestatus-rbac.yaml
