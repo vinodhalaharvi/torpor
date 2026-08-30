@@ -415,9 +415,10 @@ text:
     # Publishing the state as its first step preserves the echo — and therefore
     # convergence — while the rest of the action list actually runs.
     set_action:
-      - text.template.publish:
-          id: tone_trigger
-          state: !lambda 'return x;'
+      # publish_state directly, not text.set — text.set would re-enter
+      # set_action and recurse. The C++ call publishes without re-triggering.
+      - lambda: 'id(tone_trigger).publish_state(x);'
+      # Amp on BEFORE the tone, off after — same order as the Test Tone button.
       - switch.turn_on: amp_enable
       - lambda: |-
           if (x != "0" && !x.empty()) {
