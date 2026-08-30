@@ -63,13 +63,15 @@ func (c *CustomizedClient) InitDevice() error {
 		clientID = "torpor-mapper-" + c.TopicPrefix
 	}
 
+	// SetConnectRetry / SetConnectRetryInterval are paho v1.3+; the framework
+	// pins v1.2.0. AutoReconnect covers reconnection after a successful first
+	// connect, which is the case that matters — a broker that is down at
+	// startup surfaces as an InitDevice error the framework retries anyway.
 	opts := mqtt.NewClientOptions().
 		AddBroker(c.Broker).
 		SetClientID(clientID).
 		SetAutoReconnect(true).
-		SetCleanSession(true).
-		SetConnectRetry(true).
-		SetConnectRetryInterval(5 * time.Second)
+		SetCleanSession(true)
 
 	if c.Username != "" {
 		opts.SetUsername(c.Username)
