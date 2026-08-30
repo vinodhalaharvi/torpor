@@ -96,7 +96,7 @@ check: ## Full preflight — every hop in the chain
 .PHONY: v0
 v0: guard-ip ## THE ACCEPTANCE TEST — a temperature, via kubectl
 	@printf '  reading $(PROPERTY) from device/$(DEVICE)...\n\n    '
-	@kubectl get device $(DEVICE) -n $(NAMESPACE) \
+	@kubectl get devicestatus $(DEVICE) -n $(NAMESPACE) \
 	  -o jsonpath='{.status.twins[?(@.propertyName=="$(PROPERTY)")].reported.value}' \
 	  || { printf '\n$(BAD) no reported value\n'; exit 1; }
 	@printf '\n\n  $(OK) V0.\n\n'
@@ -251,12 +251,12 @@ device: ## Describe one device (DEVICE=w10-a)
 
 .PHONY: twins
 twins: ## Raw twin block for one device
-	kubectl get device $(DEVICE) -n $(NAMESPACE) -o jsonpath='{.status.twins}' | jq .
+	kubectl get devicestatus $(DEVICE) -n $(NAMESPACE) -o jsonpath='{.status.twins}' | jq .
 
 .PHONY: watch
 watch: ## Watch desired vs reported converge — the WANT/GOT view
-	kubectl get device $(DEVICE) -n $(NAMESPACE) -w \
-	  -o custom-columns='NAME:.metadata.name,WANT:.spec.properties[0].desired.value,GOT:.status.twins[0].reported.value'
+	kubectl get devicestatus $(DEVICE) -n $(NAMESPACE) -w \
+	  -o custom-columns='NAME:.metadata.name,WANT:.status.twins[0].observedDesired.value,GOT:.status.twins[0].reported.value'
 
 .PHONY: converge
 converge: ## Devices whose reported state has not caught up to desired

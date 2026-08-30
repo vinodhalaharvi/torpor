@@ -12,45 +12,36 @@ spec:
   properties:
     - name: temperature
       description: SHT41 temperature
-      type:
-        type: FLOAT
-        accessMode: ReadOnly
-        defaultValue: 0.0
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: "°C"
 
     - name: humidity
       description: SHT41 relative humidity
-      type:
-        type: FLOAT
-        accessMode: ReadOnly
-        defaultValue: 0.0
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: "%"
 
     - name: link_rssi
       description: last received LoRa packet RSSI
-      type:
-        type: FLOAT
-        accessMode: ReadOnly
-        defaultValue: 0.0
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: "dBm"
 
     - name: satellites
       description: GPS satellites in view
-      type:
-        type: INT
-        accessMode: ReadOnly
-        defaultValue: 0
+      type: INT
+      accessMode: ReadOnly
 
     - name: ip_address
-      type:
-        type: STRING
-        accessMode: ReadOnly
-        defaultValue: ""
+      type: STRING
+      accessMode: ReadOnly
 
     # V1 write path. Read-write, so it has a commandTopic in the Device below.
     - name: amp_enable
       description: NS4150 speaker amplifier
-      type:
-        type: STRING
-        accessMode: ReadWrite
-        defaultValue: "OFF"
+      type: STRING
+      accessMode: ReadWrite
 
 ---
 # Device — one per physical board.
