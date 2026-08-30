@@ -1,0 +1,139 @@
+---
+# DeviceModel — the schema for a device family. One per family, and per your
+# protobuf discipline it only ever grows: new properties get appended, retired
+# ones are never removed or repurposed.
+apiVersion: devices.kubeedge.io/v1beta1
+kind: DeviceModel
+metadata:
+  name: esphome-w10
+  namespace: default
+spec:
+  protocol: esphome-mqtt
+  properties:
+    - name: temperature
+      description: SHT41 temperature
+      type:
+        type: FLOAT
+        accessMode: ReadOnly
+        defaultValue: 0.0
+
+    - name: humidity
+      description: SHT41 relative humidity
+      type:
+        type: FLOAT
+        accessMode: ReadOnly
+        defaultValue: 0.0
+
+    - name: link_rssi
+      description: last received LoRa packet RSSI
+      type:
+        type: FLOAT
+        accessMode: ReadOnly
+        defaultValue: 0.0
+
+    - name: satellites
+      description: GPS satellites in view
+      type:
+        type: INT
+        accessMode: ReadOnly
+        defaultValue: 0
+
+    - name: ip_address
+      type:
+        type: STRING
+        accessMode: ReadOnly
+        defaultValue: ""
+
+    # V1 write path. Read-write, so it has a commandTopic in the Device below.
+    - name: amp_enable
+      description: NS4150 speaker amplifier
+      type:
+        type: STRING
+        accessMode: ReadWrite
+        defaultValue: "OFF"
+
+---
+# Device — one per physical board.
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: w10-a
+  namespace: default
+  labels:
+    model: esphome-w10
+    role: bench
+spec:
+  deviceModelRef:
+    name: esphome-w10
+
+  # Which edge node runs the mapper that reaches this device. Note the device
+  # is NOT the node — the node is the thing running EdgeCore, and the device
+  # hangs off it. That distinction is what lets a battery node with no agent
+  # still be a first-class object later.
+  nodeName: lima-edge
+
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: w10-a
+      # Retained birth/will from the ESPHome config. Drives GetDeviceStates.
+      statusTopic: w10-a/status
+
+  properties:
+    - name: temperature
+      collectCycle: 10000000000      # 10s, in nanoseconds
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/temperature/state
+
+    - name: humidity
+      collectCycle: 10000000000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/humidity/state
+
+    - name: link_rssi
+      collectCycle: 30000000000      # 30s
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/link_rssi/state
+
+    - name: satellites
+      collectCycle: 30000000000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: int
+          topic: sensor/satellites/state
+
+    - name: ip_address
+      collectCycle: 60000000000      # 60s
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text_sensor/ip_address/state
+
+    - name: amp_enable
+      collectCycle: 10000000000
+      reportToCloud: true
+      desired:
+        value: "OFF"
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: switch/speaker_amp/state
+          commandTopic: switch/speaker_amp/command
