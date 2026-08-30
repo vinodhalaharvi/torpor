@@ -376,6 +376,46 @@ text:
     # ESPHome rejects an explicit one. state_topic is fine.
     state_topic: ${node_name}/text/message/state
 
+  # ---------------------------------------------------------------------------
+  # tone_trigger — an action modelled as state.
+  #
+  # A button cannot be desired state: there is no "reported tone", so desired
+  # and reported never converge and the twin sits permanently drifted, which a
+  # V3 health gate would read as a device failing to apply config. Kubernetes
+  # has the same problem with `kubectl rollout restart` and answers by patching
+  # an annotation — the annotation is state, changing it causes an action, and
+  # it stays converged afterwards.
+  #
+  # Write any new token here and the tone plays; `optimistic: true` echoes it
+  # straight back, so desired == reported. Re-applying the manifest does NOT
+  # replay the tone, which is what makes an actuator safe under GitOps.
+  #
+  # This is a `text`, not a `number`. A trigger is a token, not a quantity.
+  # `number` published 0.000000 instead of 0, clamped anything past float32's
+  # seven significant digits, and — the actual blocker — accepted an explicit
+  # command_topic and silently ignored it. The boot log showed a State Topic
+  # line and no Command Topic line, so the board was never subscribed to the
+  # topic the mapper published on. Both topics are derived here, so they cannot
+  # disagree.
+  # ---------------------------------------------------------------------------
+  - platform: template
+    name: "Tone Trigger"
+    id: tone_trigger
+    mode: text
+    optimistic: true
+    min_length: 0
+    max_length: 32
+    initial_value: "0"
+    on_value:
+      # Flat action list, matching the Test Tone button that is known to work.
+      - switch.turn_on: amp_enable
+      - lambda: |-
+          if (x != "0" && !x.empty()) {
+            id(tones).play("test:d=4,o=5,b=100:c,e,g,c6");
+          }
+      - delay: 4s
+      - switch.turn_off: amp_enable
+
 button:
   - platform: template
     name: "Send Message"
@@ -445,51 +485,6 @@ interval:
             std::vector<uint8_t> p{0x05, (uint8_t) ${node_id}};
             id(radio).transmit_packet(p);
           }
-
-# -----------------------------------------------------------------------------
-# Trigger properties — actions modelled as state.
-#
-# A button cannot be desired state: there is no "reported tone", so desired and
-# reported never converge and the twin sits permanently drifted. Kubernetes has
-# the same problem with `kubectl rollout restart` and solves it by patching an
-# annotation — the annotation is state, changing it causes an action, and it
-# stays converged afterwards.
-#
-# Same shape here. Patch tone_trigger to any new number and the tone plays;
-# the board echoes the number straight back, so desired == reported and the
-# device is converged. Re-applying the same manifest does NOT replay the tone,
-# which is what makes this safe under GitOps.
-#
-# `optimistic: true` is what does the echoing — the entity reports the value it
-# was commanded, immediately, without waiting for hardware confirmation.
-# -----------------------------------------------------------------------------
-number:
-  - platform: template
-    name: "Tone Trigger"
-    id: tone_trigger
-    optimistic: true
-    # A unix timestamp is ten digits. The previous max of 999999 silently
-    # clamped every real trigger value, so the command arrived, was dropped,
-    # and nothing ever played.
-    min_value: 0
-    max_value: 4000000000
-    step: 1
-    initial_value: 0
-    restore_value: false
-    state_topic: ${node_name}/number/tone_trigger/state
-    command_topic: ${node_name}/number/tone_trigger/command
-    on_value:
-      # Flat action list, matching the Test Tone button that is known to work.
-      # An `if:` wrapper around these same actions did not play — the guard
-      # against value 0 lives inside the lambda instead, so the action list
-      # stays exactly the shape that is proven.
-      - switch.turn_on: amp_enable
-      - lambda: |-
-          if (x > 0) {
-            id(tones).play("test:d=4,o=5,b=100:c,e,g,c6");
-          }
-      - delay: 4s
-      - switch.turn_off: amp_enable
 
 # -----------------------------------------------------------------------------
 # Display
