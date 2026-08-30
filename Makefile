@@ -45,7 +45,9 @@ ESPHOME_CONFIG     ?= w10-msg-a.yaml
 W10A_IP            ?= 192.168.68.115
 W10B_IP            ?= 192.168.68.116
 
-MAPPER_DIR         ?= $(HOME)/src/esphome-mapper
+# The mapper lives in this repo. It was briefly a standalone checkout, and the
+# stale default outlived that by a full day before anything called it.
+MAPPER_DIR         ?= $(CURDIR)/mapper/esphome
 MAPPER_BIN         ?= esphome-mapper
 DMI_SOCKET         ?= /etc/kubeedge/dmi.sock
 
@@ -358,8 +360,19 @@ set: ## Patch desired state — make set PROPERTY=amp_enable VALUE=ON
 # ===========================================================================
 
 .PHONY: mapper-build
-mapper-build: ## Build the mapper for linux/arm64 and copy it into the VM
-	cd $(MAPPER_DIR) && GOOS=linux GOARCH=arm64 go build -o /tmp/$(MAPPER_BIN) ./cmd/...
+guard-paths: ## Verify configured paths exist before anything uses them
+	@ok=1; \
+	for p in "$(MAPPER_DIR)" "$(ESPHOME_DIR)"; do \
+	  [ -d "$$p" ] || { printf '  $(BAD) missing: %s\n' "$$p"; ok=0; }; \
+	done; \
+	[ -f "$(ESPHOME_DIR)/secrets.yaml" ] || \
+	  printf '  $(WARN) no $(ESPHOME_DIR)/secrets.yaml — copy secrets.yaml.example\n'; \
+	[ "$$ok" = 1 ] || exit 1
+	@printf '  $(OK) paths ok\n'
+
+.PHONY: guard-paths mapper-build
+mapper-build: guard-paths ## Build the mapper for linux/arm64 and copy it into the VM
+	cd $(MAPPER_DIR) && GOOS=linux GOARCH=arm64 go build -o /tmp/$(MAPPER_BIN) ./cmd/
 	limactl copy /tmp/$(MAPPER_BIN) $(VM):/tmp/$(MAPPER_BIN)
 	limactl shell $(VM) -- sudo install -m 0755 /tmp/$(MAPPER_BIN) /usr/local/bin/$(MAPPER_BIN)
 
