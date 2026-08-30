@@ -43,8 +43,8 @@ spec:
     # annotation rather than inventing a verb. Re-applying the manifest does
     # not replay the tone, which is what makes it safe under GitOps.
     - name: tone_trigger
-      description: write a new integer to play a tone
-      type: INT
+      description: write any new token to play a tone
+      type: STRING
       accessMode: ReadWrite
 
     # V1 write path. Read-write, so it has a commandTopic in the Device below.
@@ -141,9 +141,9 @@ spec:
       visitors:
         protocolName: esphome-mqtt
         configData:
-          dataType: int
-          topic: number/tone_trigger/state
-          commandTopic: number/tone_trigger/command
+          dataType: string
+          topic: text/tone_trigger/state
+          commandTopic: text/tone_trigger/command
 
     - name: amp_enable
       collectCycle: 10000            # ms

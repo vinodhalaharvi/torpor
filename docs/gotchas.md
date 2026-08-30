@@ -61,3 +61,35 @@ the element's index instead — `make set PROPERTY=... VALUE=...` does this.
 **`kubectl` exits 0 for a jsonpath that matches nothing.** A check that only
 tests the exit code will report success next to a blank line. Capture the
 value and test it for emptiness.
+
+---
+
+## ESPHome MQTT
+
+**Not every platform honours an explicit `command_topic`.**
+
+- `text` **rejects** it at config-validation time. Clear failure, easy to fix.
+- `number` **accepts it and silently ignores it.** The boot log is the tell:
+  every writable entity prints both topics, and the number printed only a
+  State Topic line. The board was never subscribed to the topic the mapper
+  published on, so commands vanished with no error anywhere in the stack.
+
+When an entity needs a write path, let ESPHome derive both topics and point
+the Device manifest at whatever it derives. Read them off the boot log:
+
+```
+[C][mqtt.switch:043]:   State Topic:   'w10-a/switch/speaker_amp/state'
+[C][mqtt.switch:045]:   Command Topic: 'w10-a/switch/speaker_amp/command'
+```
+
+**Use `text`, not `number`, for trigger properties.** A trigger is a token
+being echoed, not a quantity. `number` publishes `0.000000` rather than `0`,
+is float32 internally so anything past seven significant digits is unreliable
+— a unix timestamp is ten — and does not take a command topic. `text`
+publishes the string verbatim.
+
+**The SX1262 on the W10 identifies as an SX1261.** The boot log reports
+`HW Version: SX1261 V2D 2D02` while the vendor documentation and the config
+both say 1262. It works, but the 1261 tops out around +15 dBm against the
+1262's +22, so a config asking for `pa_power: 22` is not getting it. First
+thing to check if LoRa range disappoints.
