@@ -37,8 +37,13 @@ PROPERTY           ?= temperature
 NAMESPACE          ?= default
 
 BROKER_PORT        ?= 1883
-ESPHOME_DIR        ?= $(HOME)/esphome
+ESPHOME_DIR        ?= $(CURDIR)/firmware
 ESPHOME_CONFIG     ?= w10-msg-a.yaml
+
+# Board IPs. OTA by IP skips the interactive port menu and avoids mDNS, which
+# collides with Lima's forwarded 5353 on this machine.
+W10A_IP            ?= 192.168.68.115
+W10B_IP            ?= 192.168.68.116
 
 MAPPER_DIR         ?= $(HOME)/src/esphome-mapper
 MAPPER_BIN         ?= esphome-mapper
@@ -349,6 +354,14 @@ dev: mapper-build mapper-run ## Rebuild and run — the inner loop
 .PHONY: flash
 flash: ## Flash the board over the air (CONFIG=w10-msg-a.yaml)
 	cd $(ESPHOME_DIR) && esphome run $(ESPHOME_CONFIG)
+
+.PHONY: flash-a
+flash-a: ## OTA flash w10-a by IP — no port menu, no mDNS
+	cd $(ESPHOME_DIR) && esphome run w10-msg-a.yaml --device $(W10A_IP)
+
+.PHONY: flash-b
+flash-b: ## OTA flash w10-b by IP
+	cd $(ESPHOME_DIR) && esphome run w10-msg-b.yaml --device $(W10B_IP)
 
 .PHONY: fw-logs
 fw-logs: ## ESPHome serial/API logs
