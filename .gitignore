@@ -40,3 +40,5 @@ debug-*/
 .vscode/
 *.swp
 mapper/mapper-framework/
+__pycache__/
+*.pyc
