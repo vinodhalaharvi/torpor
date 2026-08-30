@@ -270,6 +270,12 @@ converge: ## Devices whose reported state has not caught up to desired
 apply: ## Apply device manifests from ./manifests
 	kubectl apply -f manifests/
 
+.PHONY: rbac
+rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
+	kubectl apply -f manifests/cloudcore-devicestatus-rbac.yaml
+	kubectl -n kubeedge rollout restart deploy/cloudcore
+	kubectl -n kubeedge rollout status deploy/cloudcore
+
 .PHONY: set
 set: ## Patch desired state — make set PROPERTY=tx_enable VALUE=ON
 	@[ -n "$(VALUE)" ] || { printf '$(BAD) VALUE= required\n'; exit 1; }

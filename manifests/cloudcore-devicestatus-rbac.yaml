@@ -1,0 +1,43 @@
+---
+# CloudCore RBAC for the DeviceStatus CRD.
+#
+# KubeEdge 1.23.1 moved device twins out of the Device object into a separate
+# DeviceStatus CRD, but the cloudcore Helm chart's ClusterRole was not updated
+# to match. The result is that cloudcore installs cleanly, reports Running,
+# and then fails every status reconcile:
+#
+#   Failed to ensure device status for device default/w10-a:
+#     devicestatuses.devices.kubeedge.io "w10-a" is forbidden:
+#     User "system:serviceaccount:kubeedge:cloudcore" cannot get resource
+#     "devicestatuses" in API group "devices.kubeedge.io"
+#
+# No DeviceStatus object is ever created, so no twin ever appears, so
+# `kubectl get device` shows a device that looks fine and reports nothing.
+#
+# This is deliberately an ADDITIVE ClusterRole and binding rather than a patch
+# to the chart's own role — a `helm upgrade` would silently revert a patch,
+# and this survives it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: torpor:cloudcore:devicestatus
+rules:
+  - apiGroups: ["devices.kubeedge.io"]
+    resources:
+      - devicestatuses
+      - devicestatuses/status
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: torpor:cloudcore:devicestatus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: torpor:cloudcore:devicestatus
+subjects:
+  - kind: ServiceAccount
+    name: cloudcore
+    namespace: kubeedge
