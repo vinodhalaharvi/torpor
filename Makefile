@@ -425,6 +425,19 @@ fw-clean: ## Clear the build cache (fixes corruption from a parallel build)
 # ===========================================================================
 
 .PHONY: up
+bench: ## Four-pane workbench — both boards on the Mac, mapper and a shell in the VM
+	@bash hack/bench.sh
+
+.PHONY: bench-kill
+bench-kill: ## Tear the workbench down
+	@bash hack/bench.sh kill
+
+.PHONY: clean-fw
+clean-fw: ## Clear both build caches — ESPHome will happily flash a stale binary
+	cd $(ESPHOME_DIR) && esphome clean w10-msg-a.yaml
+	cd $(ESPHOME_DIR) && esphome clean w10-msg-b.yaml
+
+.PHONY: bench up
 up: broker-up vm-up cluster-start ## Bring everything up
 	@$(MAKE) --no-print-directory check
 
