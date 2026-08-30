@@ -529,16 +529,35 @@ interval:
   # controller has to reason about, not this one.
   - interval: 30s
     then:
-      - lambda: 'id(tx_count)++;'
-      - sx126x.send_packet:
-          id: radio
-          data: !lambda |-
-            int16_t t = (int16_t)(id(temp).state * 10);
-            return std::vector<uint8_t>{
-              0x02, (uint8_t) ${node_id},
-              (uint8_t)(t & 0xFF), (uint8_t)((t >> 8) & 0xFF),
-              (uint8_t) id(humidity_s).state,
-              (uint8_t) id(sats).state };
+      # Do not transmit before the sensors have read.
+      #
+      # ESPHome sensor states are NaN until the first reading lands, and the
+      # SHT41 is on a 30s interval, so the first broadcast after boot fires
+      # first. Casting NaN to uint8 gives 255 and to int16 gives -1, so the
+      # gateway faithfully relayed {"temperature":-0.1,"humidity":255} and
+      # Kubernetes faithfully reported it.
+      #
+      # Nothing in the stack can tell that apart from a real reading — which
+      # is the argument for the check being here, at the only place that knows
+      # whether the number means anything.
+      - if:
+          condition:
+            lambda: |-
+              return !std::isnan(id(temp).state) &&
+                     !std::isnan(id(humidity_s).state);
+          then:
+            - lambda: 'id(tx_count)++;'
+            - sx126x.send_packet:
+                id: radio
+                data: !lambda |-
+                  int16_t t = (int16_t)(id(temp).state * 10);
+                  float h = id(humidity_s).state;
+                  float sv = id(sats).state;
+                  return std::vector<uint8_t>{
+                    0x02, (uint8_t) ${node_id},
+                    (uint8_t)(t & 0xFF), (uint8_t)((t >> 8) & 0xFF),
+                    (uint8_t)(h < 0 || h > 100 ? 0 : h),
+                    (uint8_t)(std::isnan(sv) || sv > 254 ? 0 : sv) };
 
   # Auto-reply to a ping
   - interval: 500ms

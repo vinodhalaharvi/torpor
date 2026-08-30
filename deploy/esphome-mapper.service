@@ -1,0 +1,41 @@
+# Run the mapper as a unit, not as a process in a tmux pane.
+#
+#   sudo cp deploy/esphome-mapper.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now esphome-mapper
+#
+# Two failure modes this removes, both of which cost real time:
+#
+#   Ordering. Mapper registration with edgecore is held in memory. Restart
+#   edgecore and the registration is gone while the device stays cached in
+#   SQLite, so neither side pushes and the mapper sits idle indefinitely.
+#   After= plus Restart=always means whichever restarts last catches up on
+#   its own.
+#
+#   Silence. A panic in a foreground pane goes unnoticed until something
+#   downstream fails to converge — twins simply stop updating, and every
+#   other signal looks fine. Restart=always turns that into a blip.
+
+[Unit]
+Description=torpor ESPHome MQTT mapper (KubeEdge DMI)
+Documentation=https://github.com/vinodhalaharvi/torpor
+After=network-online.target edgecore.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/esphome-mapper --v=2
+WorkingDirectory=/etc/kubeedge
+
+Restart=always
+RestartSec=5s
+
+# The DMI socket lives under /etc/kubeedge and is owned by root.
+User=root
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=esphome-mapper
+
+[Install]
+WantedBy=multi-user.target

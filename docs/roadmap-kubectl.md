@@ -1,5 +1,14 @@
 # The roadmap, as kubectl commands
 
+> **Status.** V0, V1 and V2 are built and running on hardware — see the tags.
+> V3 is design, not code: there is no `FirmwareRollout` CRD and no controller
+> behind it. The commands in the V3 section below describe what is intended,
+> not what runs.
+>
+> Where a command here differs from what actually worked, the difference is
+> noted inline. Most of them are v1beta1 schema changes, and all of them are
+> in `docs/gotchas.md`.
+
 Each version is defined by what you can type and what comes back. If the command
 works, the version is done.
 
@@ -20,14 +29,22 @@ w10-a   esphome-w10        mac-edge   4m
 ```
 
 ```bash
-kubectl get device w10-a -o jsonpath='{.status.twins[?(@.propertyName=="temperature")].reported.value}'
+kubectl get devicestatus w10-a \
+  -o jsonpath='{.status.twins[?(@.propertyName=="temperature")].reported.value}'
 ```
 ```
 26.8
 ```
 
+> **Corrected after the fact.** This originally read `kubectl get device`.
+> v1beta1 extracted twins into a separate `DeviceStatus` CRD, so the value
+> lives on `devicestatus/<name>`, and the desired side is `observedDesired`,
+> not `desired`. `device/<name>.status.twins[]` still exists and is always
+> empty — a jsonpath against it returns nothing, with no error. See
+> `docs/gotchas.md`.
+
 ```bash
-kubectl describe device w10-a
+kubectl describe devicestatus w10-a
 ```
 ```
 Status:
@@ -54,15 +71,22 @@ Nothing after this changes the shape.
 **Goal:** the loop closes. You set desired state and the physical thing changes.
 
 ```bash
-kubectl patch device w10-a --type=merge -p \
-  '{"spec":{"properties":[{"name":"tx_enable","desired":{"value":"ON"}}]}}'
+# NOT --type=merge. spec.properties is a list, and a merge patch replaces a
+# list rather than merging by name — it deletes every other property and
+# strips the visitor config from the one being set, after which the mapper
+# panics on the nil visitor. Use `make set`, which locates the index:
+i=$(kubectl get device w10-a -o json \
+    | jq -r '.spec.properties | to_entries[]
+             | select(.value.name=="tx_enable") | .key')
+kubectl patch device w10-a --type=json -p \
+  "[{\"op\":\"replace\",\"path\":\"/spec/properties/$i/desired/value\",\"value\":\"ON\"}]"
 ```
 
 Then watch the two sides converge:
 
 ```bash
-kubectl get device w10-a -o custom-columns=\
-'NAME:.metadata.name,WANT:.spec.properties[0].desired.value,GOT:.status.twins[0].reported.value'
+kubectl get devicestatus w10-a -o custom-columns=\
+'NAME:.metadata.name,WANT:.status.twins[0].observedDesired.value,GOT:.status.twins[0].reported.value'
 ```
 ```
 NAME    WANT   GOT
