@@ -282,16 +282,13 @@ rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 
 .PHONY: set
 tone: ## Play a tone on the board via kubectl — the V1 demo
-	@n=$$(date +%s); \
-	  kubectl patch device $(DEVICE) -n $(NAMESPACE) --type=merge -p \
-	    "{\"spec\":{\"properties\":[{\"name\":\"tone_trigger\",\"desired\":{\"value\":\"$$n\"}}]}}"; \
+	@n=$$(date +%s); $(MAKE) --no-print-directory set PROPERTY=tone_trigger VALUE=$$n; \
 	  printf '  patched tone_trigger=%s — listen\n' "$$n"
 
 .PHONY: v1
 v1: ## Watch desired and reported converge on amp_enable
 	@printf '  patching amp_enable=ON...\n'
-	@kubectl patch device $(DEVICE) -n $(NAMESPACE) --type=merge -p \
-	  '{"spec":{"properties":[{"name":"amp_enable","desired":{"value":"ON"}}]}}' >/dev/null
+	@$(MAKE) --no-print-directory set PROPERTY=amp_enable VALUE=ON >/dev/null
 	@printf '\n  NAME    WANT   GOT\n'
 	@for i in 1 2 3 4 5 6 7 8 9 10 11 12; do \
 	  w=$$(kubectl get device $(DEVICE) -n $(NAMESPACE) \
@@ -305,10 +302,18 @@ v1: ## Watch desired and reported converge on amp_enable
 	printf '\n  $(BAD) did not converge in 36s\n'; exit 1
 
 .PHONY: tone v1 set
-set: ## Patch desired state — make set PROPERTY=tx_enable VALUE=ON
+set: ## Patch desired state — make set PROPERTY=amp_enable VALUE=ON
 	@[ -n "$(VALUE)" ] || { printf '$(BAD) VALUE= required\n'; exit 1; }
-	kubectl patch device $(DEVICE) -n $(NAMESPACE) --type=merge -p \
-	  '{"spec":{"properties":[{"name":"$(PROPERTY)","desired":{"value":"$(VALUE)"}}]}}'
+	@# A merge patch on spec.properties REPLACES the whole list — it does not
+	@# merge by name. That silently drops every other property AND the visitor
+	@# config of the one being set, and the mapper then panics on the nil
+	@# visitor. Locate the index and use a JSON patch against that element.
+	@i=$$(kubectl get device $(DEVICE) -n $(NAMESPACE) -o json \
+	      | jq -r '.spec.properties | to_entries[] | select(.value.name=="$(PROPERTY)") | .key'); \
+	  if [ -z "$$i" ]; then \
+	    printf '$(BAD) no property named "$(PROPERTY)" on $(DEVICE)\n'; exit 1; fi; \
+	  kubectl patch device $(DEVICE) -n $(NAMESPACE) --type=json -p \
+	    "[{\"op\":\"replace\",\"path\":\"/spec/properties/$$i/desired/value\",\"value\":\"$(VALUE)\"}]"
 
 # ===========================================================================
 ##@ Mapper
