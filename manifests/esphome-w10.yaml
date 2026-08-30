@@ -37,6 +37,16 @@ spec:
       type: STRING
       accessMode: ReadOnly
 
+    # V1 trigger. Patch it to any new integer and the board plays a tone, then
+    # echoes the number back — so desired == reported and the device converges.
+    # Actions modelled as state, the way `kubectl rollout restart` patches an
+    # annotation rather than inventing a verb. Re-applying the manifest does
+    # not replay the tone, which is what makes it safe under GitOps.
+    - name: tone_trigger
+      description: write a new integer to play a tone
+      type: INT
+      accessMode: ReadWrite
+
     # V1 write path. Read-write, so it has a commandTopic in the Device below.
     - name: amp_enable
       description: NS4150 speaker amplifier
@@ -121,6 +131,19 @@ spec:
         configData:
           dataType: string
           topic: text_sensor/ip_address/state
+
+    - name: tone_trigger
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
+      reportToCloud: true
+      desired:
+        value: "0"
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: int
+          topic: number/tone_trigger/state
+          commandTopic: number/tone_trigger/command
 
     - name: amp_enable
       collectCycle: 10000            # ms

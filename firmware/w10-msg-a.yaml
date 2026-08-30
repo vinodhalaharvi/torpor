@@ -447,6 +447,46 @@ interval:
           }
 
 # -----------------------------------------------------------------------------
+# Trigger properties — actions modelled as state.
+#
+# A button cannot be desired state: there is no "reported tone", so desired and
+# reported never converge and the twin sits permanently drifted. Kubernetes has
+# the same problem with `kubectl rollout restart` and solves it by patching an
+# annotation — the annotation is state, changing it causes an action, and it
+# stays converged afterwards.
+#
+# Same shape here. Patch tone_trigger to any new number and the tone plays;
+# the board echoes the number straight back, so desired == reported and the
+# device is converged. Re-applying the same manifest does NOT replay the tone,
+# which is what makes this safe under GitOps.
+#
+# `optimistic: true` is what does the echoing — the entity reports the value it
+# was commanded, immediately, without waiting for hardware confirmation.
+# -----------------------------------------------------------------------------
+number:
+  - platform: template
+    name: "Tone Trigger"
+    id: tone_trigger
+    optimistic: true
+    min_value: 0
+    max_value: 999999
+    step: 1
+    initial_value: 0
+    restore_value: false
+    state_topic: ${node_name}/number/tone_trigger/state
+    command_topic: ${node_name}/number/tone_trigger/command
+    on_value:
+      # Value 0 is the resting state — do not play on boot.
+      - if:
+          condition:
+            lambda: 'return x > 0;'
+          then:
+            - switch.turn_on: amp_enable
+            - lambda: 'id(tones).play("test:d=4,o=5,b=100:c,e,g,c6");'
+            - delay: 4s
+            - switch.turn_off: amp_enable
+
+# -----------------------------------------------------------------------------
 # Display
 # -----------------------------------------------------------------------------
 output:

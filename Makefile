@@ -281,6 +281,30 @@ rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 	kubectl -n kubeedge rollout status deploy/cloudcore
 
 .PHONY: set
+tone: ## Play a tone on the board via kubectl — the V1 demo
+	@n=$$(date +%s); \
+	  kubectl patch device $(DEVICE) -n $(NAMESPACE) --type=merge -p \
+	    "{\"spec\":{\"properties\":[{\"name\":\"tone_trigger\",\"desired\":{\"value\":\"$$n\"}}]}}"; \
+	  printf '  patched tone_trigger=%s — listen\n' "$$n"
+
+.PHONY: v1
+v1: ## Watch desired and reported converge on amp_enable
+	@printf '  patching amp_enable=ON...\n'
+	@kubectl patch device $(DEVICE) -n $(NAMESPACE) --type=merge -p \
+	  '{"spec":{"properties":[{"name":"amp_enable","desired":{"value":"ON"}}]}}' >/dev/null
+	@printf '\n  NAME    WANT   GOT\n'
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12; do \
+	  w=$$(kubectl get device $(DEVICE) -n $(NAMESPACE) \
+	       -o jsonpath='{.spec.properties[?(@.name=="amp_enable")].desired.value}'); \
+	  g=$$(kubectl get devicestatus $(DEVICE) -n $(NAMESPACE) \
+	       -o jsonpath='{.status.twins[?(@.propertyName=="amp_enable")].reported.value}'); \
+	  printf '  $(DEVICE)   %-6s %-6s\n' "$$w" "$$g"; \
+	  [ "$$w" = "$$g" ] && { printf '\n  $(OK) converged.\n\n'; exit 0; }; \
+	  sleep 3; \
+	done; \
+	printf '\n  $(BAD) did not converge in 36s\n'; exit 1
+
+.PHONY: tone v1 set
 set: ## Patch desired state — make set PROPERTY=tx_enable VALUE=ON
 	@[ -n "$(VALUE)" ] || { printf '$(BAD) VALUE= required\n'; exit 1; }
 	kubectl patch device $(DEVICE) -n $(NAMESPACE) --type=merge -p \
