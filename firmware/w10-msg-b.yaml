@@ -1,0 +1,697 @@
+# =============================================================================
+# w10-msg.yaml — LoRa text messenger for the Meshnology W10
+#
+# Two boards, no WiFi needed between them, no internet, no gateway.
+# Type a message in one board's web UI, it arrives on the other's screen
+# and plays an alert tone through the onboard speaker.
+#
+# WHAT THIS DOES NOT DO
+# It does not read the text aloud. There is no on-device TTS in ESPHome, and
+# speech synthesis on an ESP32 without a cloud service is not realistic. What
+# you get is: text on screen, plus a distinct tone per message type so you can
+# tell an alert from a routine ping without looking.
+#
+# WIRE PROTOCOL
+#   byte 0    message type
+#   byte 1    sender id
+#   byte 2..  payload
+#
+#   0x01 TEXT   payload = UTF-8 text, up to 60 bytes
+#   0x02 TELEM  payload = temp*10 (int16 LE), humidity (uint8), sats (uint8)
+#   0x03 ALERT  payload = UTF-8 text — same as TEXT but a more urgent tone
+#   0x04 PING   payload = empty, expects a PONG back
+#   0x05 PONG   payload = empty
+#
+# Keep payloads short. At SF9 a 60-byte packet is already ~200 ms of airtime.
+#
+# MQTT — added for the KubeEdge mapper (V0)
+# The board now also publishes every sensor to a broker on the LAN. The
+# KubeEdge mapper subscribes there rather than speaking the native API, since
+# no mature Go client exists for the latter. Nothing about the LoRa messenger
+# behaviour changes; MQTT is purely additive.
+#
+#   ${node_name}/status                     online / offline (retained LWT)
+#   ${node_name}/sensor/temperature/state   the V0 number
+#   ${node_name}/sensor/humidity/state
+#   ${node_name}/sensor/link_rssi/state
+#   ${node_name}/switch/speaker_amp/command write path, for later
+#
+# Needs `mqtt_broker` in secrets.yaml — the Mac's LAN IP, not a hostname.
+# =============================================================================
+
+substitutions:
+  node_name: w10-b
+  node_id: "2"          # 1 or 2 — must differ between the two boards
+  node_label: "B"
+
+esphome:
+  name: ${node_name}
+  friendly_name: W10 ${node_label}
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+# NOTE: every lambda here calls esphome::millis(), not millis().
+# TinyGPSPlus (pulled in by the gps component) declares its own global
+# millis(), so the bare name is ambiguous and the build fails.
+logger:
+  level: DEBUG
+  logs:
+    sx126x: DEBUG
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${node_name}-Fallback"
+    password: "12345678"
+
+captive_portal:
+
+# reboot_timeout MUST be 0s now that MQTT is enabled.
+# Default is 15 min: with no Home Assistant connecting to the native API, the
+# board would reboot every quarter hour and you would spend an afternoon
+# blaming the radio.
+api:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+web_server:
+  port: 80
+
+# -----------------------------------------------------------------------------
+# MQTT — the V0 integration point for the KubeEdge mapper.
+# -----------------------------------------------------------------------------
+mqtt:
+  id: mqtt_client
+  broker: !secret mqtt_broker
+  port: 1883
+  client_id: ${node_name}
+  topic_prefix: ${node_name}
+
+  # No Home Assistant here. Discovery would dump a retained config blob per
+  # entity into the broker for nobody to consume.
+  discovery: false
+  discovery_retain: false
+
+  # Do not mirror the logger into MQTT. The logger is at DEBUG with sx126x
+  # verbose; leaving this on floods the broker and makes mosquitto_sub
+  # unreadable. Empty value disables it.
+  log_topic:
+
+  # The mapper uses these for device liveness — the retained LWT is what
+  # distinguishes "gone" from "just quiet" once V2 introduces Sleeping.
+  birth_message:
+    topic: ${node_name}/status
+    payload: online
+    retain: true
+  will_message:
+    topic: ${node_name}/status
+    payload: offline
+    retain: true
+
+  # If the broker is unreachable, keep running the LoRa link rather than
+  # rebooting. The messenger must not depend on infrastructure.
+  reboot_timeout: 0s
+
+i2c:
+  sda: GPIO8
+  scl: GPIO7
+  frequency: 400kHz
+  scan: true
+
+mcp23017:
+  - id: expander
+    address: 0x20
+
+spi:
+  clk_pin: GPIO12
+  mosi_pin: GPIO13
+  miso_pin: GPIO11
+
+globals:
+  - id: last_msg
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: last_from
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: last_rssi
+    type: float
+    restore_value: false
+    initial_value: '0'
+  - id: last_snr
+    type: float
+    restore_value: false
+    initial_value: '0'
+  - id: last_rx_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: rx_count
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: tx_count
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: remote_temp
+    type: float
+    restore_value: false
+    initial_value: '0'
+  - id: remote_hum
+    type: float
+    restore_value: false
+    initial_value: '0'
+  - id: remote_sats
+    type: int
+    restore_value: false
+    initial_value: '0'
+
+# -----------------------------------------------------------------------------
+# Audio: ES8311 codec over I2S, NS4150 amplifier enabled via expander pin 7.
+# The amp is left off until something needs to play, so it is not sitting
+# there drawing current and picking up hiss.
+# -----------------------------------------------------------------------------
+i2s_audio:
+  - id: i2s_bus
+    i2s_lrclk_pin: GPIO4
+    i2s_bclk_pin: GPIO2
+    i2s_mclk_pin: GPIO1
+
+audio_dac:
+  - platform: es8311
+    id: codec
+    address: 0x18
+    sample_rate: 16000
+    bits_per_sample: 16bit
+
+speaker:
+  - platform: i2s_audio
+    id: spk
+    i2s_audio_id: i2s_bus
+    dac_type: external
+    i2s_dout_pin: GPIO5
+    audio_dac: codec
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: mono
+
+rtttl:
+  id: tones
+  speaker: spk
+  gain: 60%
+
+switch:
+  - platform: gpio
+    id: amp_enable
+    name: "Speaker Amp"
+    restore_mode: ALWAYS_OFF
+    # Explicit topics so the mapper's write path in V1 does not depend on
+    # ESPHome's object_id sanitisation staying the same across versions.
+    state_topic: ${node_name}/switch/speaker_amp/state
+    command_topic: ${node_name}/switch/speaker_amp/command
+    pin:
+      mcp23xxx: expander
+      number: 7               # EXIO7 / GPA7 — NS4150 enable
+      mode:
+        output: true
+
+  - platform: gpio
+    name: "GPS Wake"
+    restore_mode: ALWAYS_ON
+    state_topic: ${node_name}/switch/gps_wake/state
+    command_topic: ${node_name}/switch/gps_wake/command
+    pin:
+      mcp23xxx: expander
+      number: 12              # EXIO12 / GPB4
+      mode:
+        output: true
+
+# -----------------------------------------------------------------------------
+# Radio
+# -----------------------------------------------------------------------------
+sx126x:
+  id: radio
+  hw_version: sx1262
+  frequency: 915000000
+  modulation: LORA
+  bandwidth: 125_0kHz
+  spreading_factor: 9
+  coding_rate: CR_4_5
+  preamble_size: 8
+  sync_value: [0x14, 0x24]
+  pa_power: 22
+  rf_switch: true
+  tcxo_voltage: NONE
+  crc_enable: true
+  rx_start: true
+  cs_pin: GPIO14
+  dio1_pin:
+    mcp23xxx: expander
+    number: 9
+    mode:
+      input: true
+  busy_pin:
+    mcp23xxx: expander
+    number: 10
+    mode:
+      input: true
+  rst_pin:
+    mcp23xxx: expander
+    number: 3
+    mode:
+      output: true
+
+  on_packet:
+    then:
+      - lambda: |-
+          if (x.size() < 2) return;
+
+          const uint8_t type = x[0];
+          const uint8_t from = x[1];
+
+          id(rx_count)++;
+          id(last_rssi)  = rssi;
+          id(last_snr)   = snr;
+          id(last_rx_ms) = esphome::millis();
+          id(last_from)  = from;
+
+          switch (type) {
+            case 0x01:   // TEXT
+            case 0x03: { // ALERT
+              std::string msg(x.begin() + 2, x.end());
+              id(last_msg) = msg;
+              ESP_LOGI("msg", "%s from node %u: %s",
+                       type == 0x03 ? "ALERT" : "TEXT", from, msg.c_str());
+              break;
+            }
+            case 0x02: { // TELEM
+              if (x.size() >= 6) {
+                int16_t t = (int16_t)(x[2] | (x[3] << 8));
+                id(remote_temp) = t / 10.0f;
+                id(remote_hum)  = x[4];
+                id(remote_sats) = x[5];
+                ESP_LOGI("msg", "telemetry from %u: %.1fC %u%% sats=%u",
+                         from, id(remote_temp), x[4], x[5]);
+              }
+              break;
+            }
+            case 0x04:   // PING
+              ESP_LOGI("msg", "ping from %u", from);
+              id(last_msg) = "PING received";
+              break;
+            case 0x05:   // PONG
+              ESP_LOGI("msg", "pong from %u", from);
+              id(last_msg) = "PONG received";
+              break;
+          }
+
+      # Mirror inbound LoRa traffic onto MQTT. This is the first hint of what
+      # the V2 gateway becomes: a LoRa node with no IP, surfaced to the fleet
+      # controller through a board that has one.
+      - mqtt.publish:
+          topic: ${node_name}/lora/rx
+          retain: false
+          payload: !lambda |-
+            char buf[128];
+            snprintf(buf, sizeof(buf),
+                     "{\"type\":%u,\"from\":%u,\"rssi\":%.0f,\"snr\":%.1f}",
+                     x.size() > 0 ? x[0] : 0,
+                     x.size() > 1 ? x[1] : 0,
+                     id(last_rssi), id(last_snr));
+            return std::string(buf);
+
+      # Alert tones. The amp is switched on, the tone plays, then it goes back
+      # off — the delay is longer than the tune so playback is not cut short.
+      - switch.turn_on: amp_enable
+      - lambda: |-
+          if (x.size() < 1) return;
+          switch (x[0]) {
+            case 0x03:  // urgent
+              id(tones).play("alert:d=8,o=6,b=180:c,e,c,e,c,e");
+              break;
+            case 0x02:  // telemetry — quiet
+              id(tones).play("tick:d=32,o=7,b=200:c");
+              break;
+            default:    // text, ping, pong
+              id(tones).play("msg:d=16,o=6,b=140:e,g");
+              break;
+          }
+      - delay: 3s
+      - switch.turn_off: amp_enable
+
+      - light.turn_on:
+          id: onboard_led
+          red: 0%
+          green: 100%
+          blue: 0%
+      - delay: 300ms
+      - light.turn_off: onboard_led
+
+# -----------------------------------------------------------------------------
+# Composing messages. `text:` gives you a free-text box in the web UI.
+# -----------------------------------------------------------------------------
+text:
+  - platform: template
+    name: "Message"
+    id: outgoing
+    mode: text
+    optimistic: true
+    min_length: 0
+    max_length: 60
+    initial_value: "hello"
+    # No command_topic here — text entities derive theirs automatically and
+    # ESPHome rejects an explicit one. state_topic is fine.
+    state_topic: ${node_name}/text/message/state
+
+  # ---------------------------------------------------------------------------
+  # tone_trigger — an action modelled as state.
+  #
+  # A button cannot be desired state: there is no "reported tone", so desired
+  # and reported never converge and the twin sits permanently drifted, which a
+  # V3 health gate would read as a device failing to apply config. Kubernetes
+  # has the same problem with `kubectl rollout restart` and answers by patching
+  # an annotation — the annotation is state, changing it causes an action, and
+  # it stays converged afterwards.
+  #
+  # Write any new token here and the tone plays; `optimistic: true` echoes it
+  # straight back, so desired == reported. Re-applying the manifest does NOT
+  # replay the tone, which is what makes an actuator safe under GitOps.
+  #
+  # This is a `text`, not a `number`. A trigger is a token, not a quantity.
+  # `number` published 0.000000 instead of 0, clamped anything past float32's
+  # seven significant digits, and — the actual blocker — accepted an explicit
+  # command_topic and silently ignored it. The boot log showed a State Topic
+  # line and no Command Topic line, so the board was never subscribed to the
+  # topic the mapper published on. Both topics are derived here, so they cannot
+  # disagree.
+  # ---------------------------------------------------------------------------
+  - platform: template
+    name: "Tone Trigger"
+    id: tone_trigger
+    mode: text
+    min_length: 0
+    max_length: 32
+    initial_value: "0"
+    # `optimistic: true` is deliberately absent. It short-circuits: the entity
+    # publishes the commanded value straight back to the state topic without
+    # running on_value, so the twin converged perfectly and the tone never
+    # played. Setting the value from the web UI took a different path and did
+    # play, which is what isolated it.
+    #
+    # set_action is the documented hook for an externally-commanded value.
+    # Publishing the state as its first step preserves the echo — and therefore
+    # convergence — while the rest of the action list actually runs.
+    set_action:
+      # The device deduplicates, because the controller does not.
+      #
+      # The mapper writes desired state on every collect cycle, not only when
+      # it changes, and set_action runs on every write. Without this guard the
+      # same token replays the tone every ten seconds, forever. That is the
+      # exact failure the trigger-property pattern exists to prevent, arriving
+      # from the other direction: idempotence has to live at the device,
+      # because nothing upstream guarantees a single write.
+      #
+      # Generalises directly to V3 — a rollout property that re-triggers a
+      # flash on every reconcile would be considerably worse than a tone.
+      - lambda: |-
+          static std::string last_token = "";
+          id(tone_trigger).publish_state(x);
+          if (x.empty() || x == "0" || x == last_token) {
+            return;
+          }
+          last_token = x;
+          id(amp_enable).turn_on();
+          id(tones).play("test:d=4,o=5,b=100:c,e,g,c6");
+      # Long enough for the tune plus the speaker's own stop sequence. The amp
+      # is left on if the tone was skipped, which is harmless — it is switched
+      # off unconditionally below.
+      - delay: 5s
+      - switch.turn_off: amp_enable
+
+button:
+  - platform: template
+    name: "Send Message"
+    on_press:
+      - lambda: 'id(tx_count)++;'
+      - sx126x.send_packet:
+          id: radio
+          data: !lambda |-
+            std::vector<uint8_t> p{0x01, (uint8_t) ${node_id}};
+            const std::string &s = id(outgoing).state;
+            p.insert(p.end(), s.begin(), s.end());
+            return p;
+
+  - platform: template
+    name: "Send ALERT"
+    on_press:
+      - lambda: 'id(tx_count)++;'
+      - sx126x.send_packet:
+          id: radio
+          data: !lambda |-
+            std::vector<uint8_t> p{0x03, (uint8_t) ${node_id}};
+            const std::string &s = id(outgoing).state;
+            p.insert(p.end(), s.begin(), s.end());
+            return p;
+
+  - platform: template
+    name: "Ping"
+    on_press:
+      - lambda: 'id(tx_count)++;'
+      - sx126x.send_packet:
+          id: radio
+          # A lambda, not [0x04, ${node_id}] — a substitution inside a YAML
+          # flow sequence is a parse error.
+          data: !lambda 'return std::vector<uint8_t>{0x04, (uint8_t) ${node_id}};'
+
+  - platform: template
+    name: "Send Telemetry"
+    on_press:
+      - lambda: 'id(tx_count)++;'
+      - sx126x.send_packet:
+          id: radio
+          data: !lambda |-
+            int16_t t = (int16_t)(id(temp).state * 10);
+            return std::vector<uint8_t>{
+              0x02, (uint8_t) ${node_id},
+              (uint8_t)(t & 0xFF), (uint8_t)((t >> 8) & 0xFF),
+              (uint8_t) id(humidity_s).state,
+              (uint8_t) id(sats).state };
+
+  - platform: template
+    name: "Test Tone"
+    on_press:
+      - switch.turn_on: amp_enable
+      - lambda: 'id(tones).play("test:d=4,o=5,b=100:c,e,g,c6");'
+      - delay: 4s
+      - switch.turn_off: amp_enable
+
+# Auto-reply to a ping
+interval:
+  - interval: 500ms
+    then:
+      - lambda: |-
+          static uint32_t handled = 0;
+          if (id(last_msg) == "PING received" && id(last_rx_ms) != handled) {
+            handled = id(last_rx_ms);
+            id(tx_count)++;
+            std::vector<uint8_t> p{0x05, (uint8_t) ${node_id}};
+            id(radio).transmit_packet(p);
+          }
+
+# -----------------------------------------------------------------------------
+# Display
+# -----------------------------------------------------------------------------
+output:
+  - platform: ledc
+    pin: GPIO6
+    id: backlight_out
+
+font:
+  - file: "DejaVuSans.ttf"
+    id: font_s
+    size: 13
+  - file: "DejaVuSans.ttf"
+    id: font_m
+    size: 17
+  - file: "DejaVuSans.ttf"
+    id: font_l
+    size: 24
+
+color:
+  - id: c_white
+    hex: FFFFFF
+  - id: c_green
+    hex: 00FF00
+  - id: c_amber
+    hex: FFAA00
+  - id: c_red
+    hex: FF3030
+  - id: c_grey
+    hex: 808080
+  - id: c_cyan
+    hex: 00E0FF
+
+display:
+  - platform: st7789v
+    model: Custom
+    width: 240
+    height: 240
+    offset_width: 0
+    offset_height: 0
+    cs_pin: GPIO10
+    dc_pin: GPIO16
+    reset_pin:
+      mcp23xxx: expander
+      number: 1
+      mode:
+        output: true
+    update_interval: 1s
+    lambda: |-
+      it.printf(6, 2, id(font_l), id(c_cyan), "NODE ${node_label}");
+      it.printf(234, 8, id(font_s), id(c_grey), TextAlign::TOP_RIGHT, "915 SF9");
+      it.line(0, 32, 240, 32, id(c_grey));
+
+      uint32_t age = (id(last_rx_ms) == 0) ? 999999
+                                           : (esphome::millis() - id(last_rx_ms)) / 1000;
+      auto col = (age < 60) ? id(c_green) : id(c_red);
+      it.printf(6, 38, id(font_s), col, "%s", (age < 60) ? "LINK UP" : "NO LINK");
+      if (id(last_rx_ms) != 0) {
+        it.printf(234, 38, id(font_s), id(c_grey), TextAlign::TOP_RIGHT,
+                  "%.0f dBm  %.0fs", id(last_rssi), (float) age);
+      }
+
+      // Broker state, top-left of the status row. Once the mapper is running
+      // this is the fastest way to see whether the fleet link is up without
+      // going near kubectl.
+      it.printf(160, 2, id(font_s), id(mqtt_client).is_connected() ? id(c_green)
+                                                                   : id(c_red),
+                TextAlign::TOP_LEFT, "MQTT");
+
+      // Last message, wrapped by hand at ~26 chars
+      it.line(0, 58, 240, 58, id(c_grey));
+      it.printf(6, 62, id(font_s), id(c_grey), "from node %d:", id(last_from));
+      {
+        const std::string &m = id(last_msg);
+        int y = 80;
+        for (size_t i = 0; i < m.size() && y < 150; i += 26, y += 20) {
+          it.printf(6, y, id(font_m), id(c_white), "%s", m.substr(i, 26).c_str());
+        }
+      }
+
+      it.line(0, 152, 240, 152, id(c_grey));
+      it.printf(6, 156, id(font_s), id(c_amber), "TX %d", id(tx_count));
+      it.printf(90, 156, id(font_s), id(c_green), "RX %d", id(rx_count));
+
+      it.printf(6, 180, id(font_s), id(c_white), "here  %.1fC  %.0f%%",
+                id(temp).state, id(humidity_s).state);
+      it.printf(6, 200, id(font_s), id(c_cyan), "there %.1fC  %.0f%%",
+                id(remote_temp), id(remote_hum));
+      it.printf(6, 220, id(font_s), id(c_grey), "sats %.0f / %d",
+                id(sats).state, id(remote_sats));
+
+light:
+  - platform: monochromatic
+    output: backlight_out
+    name: "Backlight"
+    restore_mode: ALWAYS_ON
+
+  - platform: esp32_rmt_led_strip
+    id: onboard_led
+    name: "Onboard LED"
+    pin: GPIO48
+    num_leds: 1
+    chipset: ws2812
+    channel_colors: GRB
+
+uart:
+  id: gps_uart
+  rx_pin: GPIO44
+  tx_pin: GPIO43
+  baud_rate: 9600
+
+gps:
+  uart_id: gps_uart
+  latitude:
+    name: "Latitude"
+    id: lat
+  longitude:
+    name: "Longitude"
+    id: lon
+  satellites:
+    name: "Satellites"
+    id: sats
+
+sensor:
+  - platform: sht4x
+    address: 0x44
+    temperature:
+      name: "Temperature"
+      id: temp
+      # THE V0 TOPIC. Pinned explicitly so the mapper's subscription is a
+      # contract, not a guess about how ESPHome derives object_id.
+      state_topic: ${node_name}/sensor/temperature/state
+    humidity:
+      name: "Humidity"
+      id: humidity_s
+      state_topic: ${node_name}/sensor/humidity/state
+    # 30s is fine for the display but slow for watching a twin converge.
+    # Drop to 10s while you are proving the chain, then put it back.
+    update_interval: 30s
+
+  - platform: template
+    name: "Remote Temperature"
+    lambda: 'return id(remote_temp);'
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    update_interval: 10s
+    state_topic: ${node_name}/sensor/remote_temperature/state
+
+  - platform: template
+    name: "Link RSSI"
+    lambda: 'return id(last_rssi);'
+    unit_of_measurement: "dBm"
+    accuracy_decimals: 0
+    update_interval: 10s
+    state_topic: ${node_name}/sensor/link_rssi/state
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+    state_topic: ${node_name}/sensor/wifi_signal/state
+
+binary_sensor:
+  - platform: gpio
+    name: "Button"
+    state_topic: ${node_name}/binary_sensor/button/state
+    pin:
+      number: GPIO0
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    on_press:
+      - lambda: 'id(tx_count)++;'
+      - sx126x.send_packet:
+          id: radio
+          # A lambda, not [0x04, ${node_id}] — a substitution inside a YAML
+          # flow sequence is a parse error.
+          data: !lambda 'return std::vector<uint8_t>{0x04, (uint8_t) ${node_id}};'
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      state_topic: ${node_name}/text_sensor/ip_address/state

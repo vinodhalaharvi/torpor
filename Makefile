@@ -363,6 +363,18 @@ flash-a: ## OTA flash w10-a by IP — no port menu, no mDNS
 flash-b: ## OTA flash w10-b by IP
 	cd $(ESPHOME_DIR) && esphome run w10-msg-b.yaml --device $(W10B_IP)
 
+.PHONY: gen-b
+gen-b: ## Regenerate w10-msg-b.yaml from A — run after every change to A
+	@cd $(ESPHOME_DIR) && sed \
+	  -e 's/^  node_name: w10-a/  node_name: w10-b/' \
+	  -e 's/^  node_id: "1"/  node_id: "2"/' \
+	  -e 's/^  node_label: "A"/  node_label: "B"/' \
+	  w10-msg-a.yaml > w10-msg-b.yaml
+	@cd $(ESPHOME_DIR) && d=$$(diff w10-msg-a.yaml w10-msg-b.yaml | grep -c '^[<>]'); \
+	  if [ "$$d" -ne 6 ]; then \
+	    printf '  $(BAD) expected 6 differing lines, got %s\n' "$$d"; exit 1; fi
+	@printf '  $(OK) w10-msg-b.yaml regenerated (substitutions only)\n'
+
 .PHONY: fw-logs
 fw-logs: ## ESPHome serial/API logs
 	cd $(ESPHOME_DIR) && esphome logs $(ESPHOME_CONFIG)
