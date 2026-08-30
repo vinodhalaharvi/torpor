@@ -32,3 +32,13 @@ $(make_rules):
 
 .DEFAULT_GOAL := help
 .PHONY: $(make_rules) build test package
+
+
+W10A_IP ?= 192.168.68.115
+W10B_IP ?= 192.168.68.116     # fill in once B is flashed
+
+flash-a: ## OTA flash w10-a
+	cd firmware && esphome run w10-msg-a.yaml --device $(W10A_IP)
+
+flash-b: ## OTA flash w10-b
+	cd firmware && esphome run w10-msg-b.yaml --device $(W10B_IP)
