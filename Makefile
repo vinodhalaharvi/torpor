@@ -95,11 +95,15 @@ check: ## Full preflight — every hop in the chain
 
 .PHONY: v0
 v0: guard-ip ## THE ACCEPTANCE TEST — a temperature, via kubectl
-	@printf '  reading $(PROPERTY) from device/$(DEVICE)...\n\n    '
-	@kubectl get devicestatus $(DEVICE) -n $(NAMESPACE) \
-	  -o jsonpath='{.status.twins[?(@.propertyName=="$(PROPERTY)")].reported.value}' \
-	  || { printf '\n$(BAD) no reported value\n'; exit 1; }
-	@printf '\n\n  $(OK) V0.\n\n'
+	@printf '  reading $(PROPERTY) from devicestatus/$(DEVICE)...\n\n'
+	@v=$$(kubectl get devicestatus $(DEVICE) -n $(NAMESPACE) \
+	      -o jsonpath='{.status.twins[?(@.propertyName=="$(PROPERTY)")].reported.value}' 2>/dev/null); \
+	  if [ -z "$$v" ]; then \
+	    printf '    $(BAD) no reported value — twins are empty\n\n'; \
+	    printf '    try: kubectl get devicestatus $(DEVICE) -o yaml\n\n'; \
+	    exit 1; \
+	  fi; \
+	  printf '    %s\n\n  $(OK) V0.\n\n' "$$v" 
 
 .PHONY: dump
 dump: ## Write a debug bundle to ./debug-<ts>/ for when something is wrong
