@@ -275,3 +275,45 @@ the order lives in a Makefile target rather than in somebody's memory.
 
 `make why` prints the three logs that between them always contain the answer:
 the mapper's, edgecore's, and cloudcore's — filtered to the lines that matter.
+
+---
+
+## CloudCore cannot roll, and the failure is silent everywhere else
+
+`kubectl rollout restart deploy/cloudcore` wedges it. Every time.
+
+CloudCore runs with `hostNetwork` bound to ports 10000 and 10002. The chart
+ships the default `RollingUpdate` strategy, which starts the new pod before
+terminating the old one — and the new pod can never bind ports the old pod
+still holds. It sits `Pending` indefinitely and the Deployment never completes.
+
+**One pod is Running and healthy the whole time.** Nothing about cloudcore
+reports an error. But a Deployment stuck mid-rollout stops the device
+controller reconciling, so every Device created after the stall is never
+delivered to any edge node.
+
+From the edge that is completely invisible:
+
+- EdgeCore polls for device membership once a minute, gets a list built before
+  the stall, and logs nothing unusual — because nothing unusual happened to it
+- the mapper subscribes to exactly the devices it was told about
+- `kubectl get devices` shows all of them, correct in every field
+- `make why` prints three clean logs
+
+The only tell is a second ReplicaSet with a pod `Pending` for hours, which
+looks like harmless debris from an earlier restart and is in fact the cause.
+
+Diagnosing this from the bottom took most of a session. `make check` now tests
+for both the strategy and a stalled rollout, because there is no other angle
+from which this is visible.
+
+```bash
+make cloudcore-strategy    # patch to Recreate, clear any wedged pod
+```
+
+Applied as a separate manifest rather than edited into the chart, since
+`keadm init` is a Helm install and an upgrade would silently revert an edit.
+
+Recreate costs a few seconds of tunnel downtime per restart. Correct trade —
+edge nodes reconnect on their own, and a brief gap beats a Deployment that
+never completes.
