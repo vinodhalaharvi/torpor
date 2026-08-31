@@ -121,13 +121,20 @@ rules:
   # the twin timestamps. Read-only: this controller derives an opinion, it does
   # not touch device state.
   - apiGroups: ["devices.kubeedge.io"]
-    resources: [devices, devicestatuses]
+    resources: [devicestatuses]
     verbs: [get, list, watch]
+  # The rollout controller writes firmware_url as desired state on the Device.
+  # This is the only place in the project that mutates an upstream object, and
+  # it does so through the same property mechanism as everything else — a
+  # firmware update is a property whose value happens to be a URL.
+  - apiGroups: ["devices.kubeedge.io"]
+    resources: [devices]
+    verbs: [get, list, watch, update, patch]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses]
+    resources: [devicelivenesses, firmwarerollouts]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses/status]
+    resources: [devicelivenesses/status, firmwarerollouts/status]
     verbs: [get, update, patch]
   - apiGroups: [""]
     resources: [events]
@@ -149,3 +156,94 @@ subjects:
   - kind: ServiceAccount
     name: torpor-liveness
     namespace: kubeedge
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: firmwarerollouts.fleet.torpor.io
+spec:
+  group: fleet.torpor.io
+  scope: Namespaced
+  names:
+    kind: FirmwareRollout
+    listKind: FirmwareRolloutList
+    plural: firmwarerollouts
+    singular: firmwarerollout
+    shortNames: [fr, rollout]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Target,   type: integer, jsonPath: .status.target}
+        - {name: Eligible, type: integer, jsonPath: .status.eligible}
+        - {name: Updated,  type: integer, jsonPath: .status.updated}
+        - {name: Healthy,  type: integer, jsonPath: .status.healthy}
+        - {name: Phase,    type: string,  jsonPath: .status.phase}
+        - {name: Step,     type: string,  jsonPath: .status.step}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [selector, source]
+              properties:
+                selector:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                paused:
+                  type: boolean
+                source:
+                  type: object
+                  required: [configHash]
+                  properties:
+                    package: {type: string}
+                    configHash:
+                      type: string
+                      description: >
+                        What the device must report about its own RUNNING state
+                        to prove it applied this. Not an echo of what it was
+                        told — a device can acknowledge an instruction it never
+                        carried out.
+                    sizeBytes: {type: integer}
+                requires:
+                  type: object
+                  description: >
+                    Checked before anything is transmitted. Produces the
+                    refused list rather than a batch of timeouts hours later.
+                  properties:
+                    ota: {type: boolean}
+                    minBatteryPercent: {type: integer}
+                    maxSilentFor: {type: string}
+                strategy:
+                  type: object
+                  properties:
+                    canary: {type: integer}
+                    steps:
+                      type: array
+                      items: {type: integer}
+                      description: Cumulative percentages of ELIGIBLE, not of target.
+                    maxConcurrent:
+                      type: integer
+                      description: >
+                        Bounded by the medium, not the CPU. Exceeding a LoRa
+                        duty cycle is a regulatory problem, not a slow one.
+                    healthGate:
+                      type: object
+                      properties:
+                        mustReportWithin: {type: string}
+                        mustReportConfigHash: {type: boolean}
+                        settleFor: {type: string}
+                    rollbackOn:
+                      type: object
+                      properties:
+                        bootLoopThreshold: {type: integer}
+                        healthGateFailures: {type: integer}
+                        automatic: {type: boolean}
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true

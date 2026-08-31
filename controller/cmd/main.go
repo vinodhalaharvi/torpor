@@ -52,6 +52,10 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "DeviceLiveness")
 		os.Exit(1)
 	}
+	if err := (&internal.RolloutReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "FirmwareRollout")
+		os.Exit(1)
+	}
 
 	_ = mgr.AddHealthzCheck("healthz", healthz.Ping)
 	_ = mgr.AddReadyzCheck("readyz", healthz.Ping)

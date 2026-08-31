@@ -1,0 +1,39 @@
+---
+# A rollout you can actually run, against the two boards on the desk.
+#
+# Both W10s are OTA-capable over WiFi, so neither is refused. field-01 is the
+# same hardware as w10-b modelled as a LoRa node, and it has no OTA-capable
+# transport — so it is refused, permanently and correctly, before anything is
+# transmitted. That refusal is the demo.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FirmwareRollout
+metadata:
+  name: bench-v43
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      model: esphome-w10
+
+  source:
+    # Serve the build with:
+    #   cd firmware/.esphome/build/w10-a/build && python3 -m http.server 8000
+    package: http://192.168.68.113:8000/w10-a.ota.bin
+    # Must match `firmware_hash` in the ESPHome config of the build being
+    # served. The device compares before flashing and refuses a no-op.
+    configHash: "43fdb43"
+    sizeBytes: 1158704
+
+  requires:
+    ota: true
+
+  strategy:
+    canary: 1                 # w10-a first, alone, and watch it
+    steps: [50, 100]
+    maxConcurrent: 1
+    healthGate:
+      mustReportWithin: 5m
+      mustReportConfigHash: true
+    rollbackOn:
+      healthGateFailures: 1
+      automatic: false

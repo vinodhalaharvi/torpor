@@ -37,11 +37,64 @@ spec:
       type: STRING
       accessMode: ReadOnly
 
+    # --- Rollout properties -------------------------------------------------
+    #
+    # A firmware update is a property whose value happens to be a URL. Nothing
+    # about the transport is special: the controller writes desired state, the
+    # mapper delivers it, the device acts, and the device reports back.
+
+    - name: firmware_url
+      description: "<configHash>|<ociOrHttpUrl> — device pulls and flashes"
+      type: STRING
+      accessMode: ReadWrite
+
+    - name: running_config_hash
+      description: what the device is actually running, not what it was told
+      type: STRING
+      accessMode: ReadOnly
+
+    - name: uptime
+      description: seconds since boot; a falling value is a boot loop
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: s
+
     # V1 trigger. Patch it to any new integer and the board plays a tone, then
     # echoes the number back — so desired == reported and the device converges.
     # Actions modelled as state, the way `kubectl rollout restart` patches an
     # annotation rather than inventing a verb. Re-applying the manifest does
     # not replay the tone, which is what makes it safe under GitOps.
+    - name: firmware_url
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+
+    - name: running_config_hash
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text_sensor/running_config_hash/state
+
+    - name: uptime
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/uptime/state
+
     - name: tone_trigger
       description: write any new token to play a tone
       type: STRING
@@ -63,6 +116,9 @@ metadata:
   labels:
     model: esphome-w10
     role: bench
+    # Selectable by a FirmwareRollout. Both W10s are OTA-capable over WiFi.
+    ota: "true"
+    transport: wifi
 spec:
   deviceModelRef:
     name: esphome-w10
@@ -132,6 +188,37 @@ spec:
           dataType: string
           topic: text_sensor/ip_address/state
 
+    - name: firmware_url
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+
+    - name: running_config_hash
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text_sensor/running_config_hash/state
+
+    - name: uptime
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/uptime/state
+
     - name: tone_trigger
       collectCycle: 10000            # ms
       reportCycle: 10000             # ms
@@ -175,6 +262,9 @@ metadata:
   labels:
     model: esphome-w10
     role: bench
+    # Selectable by a FirmwareRollout. Both W10s are OTA-capable over WiFi.
+    ota: "true"
+    transport: wifi
 spec:
   deviceModelRef:
     name: esphome-w10
@@ -243,6 +333,37 @@ spec:
         configData:
           dataType: string
           topic: text_sensor/ip_address/state
+
+    - name: firmware_url
+      collectCycle: 10000            # ms
+      reportCycle: 10000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+
+    - name: running_config_hash
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text_sensor/running_config_hash/state
+
+    - name: uptime
+      collectCycle: 30000            # ms
+      reportCycle: 30000             # ms
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/uptime/state
 
     - name: tone_trigger
       collectCycle: 10000            # ms

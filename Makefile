@@ -317,6 +317,17 @@ liveness-run: ## Run the liveness controller locally against the cluster
 	cd controller && go run ./cmd/ --leader-elect=false
 
 .PHONY: liveness
+serve-fw: ## Serve the built firmware over HTTP for pull-based OTA
+	@printf '  serving $(ESPHOME_DIR)/.esphome/build/w10-a/build on :8000\n'
+	@printf '  package: http://$(MAC_IP):8000/w10-a.ota.bin\n\n'
+	cd $(ESPHOME_DIR)/.esphome/build/w10-a/build && python3 -m http.server 8000
+
+.PHONY: rollout-demo
+rollout-demo: ## Apply the bench rollout and watch it
+	kubectl apply -f manifests/rollout-bench.yaml
+	kubectl get firmwarerollout bench-v43 -n $(NAMESPACE) -w
+
+.PHONY: rollouts
 rollouts: ## Rollouts, with the three columns nothing else has
 	@kubectl get firmwarerollout -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no FirmwareRollout objects\n'
@@ -329,7 +340,7 @@ refused: ## Why each device was refused or is pending — the planning result
 	    ((.status.pending // [])[] | "\($$r)  PENDING  \(.device)  \(.reason)  \(.detail)")' \
 	  | column -t -s'  ' || printf '  $(WARN) nothing to report\n'
 
-.PHONY: rollouts refused liveness
+.PHONY: serve-fw rollout-demo rollouts refused liveness
 liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
