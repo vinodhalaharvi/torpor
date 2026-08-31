@@ -173,6 +173,17 @@ make bench            # four-pane workbench
 
 `make` alone prints grouped help.
 
+## Where it goes next
+
+`docs/next.md`, ordered by cost against what it settles. The top of that list is
+running what already exists — six pull requests of Go were written without a
+compiler, and every one looked correct at the time.
+
+The nearest real design question is intent semantics: when three patches land
+while a node sleeps, does it get all three in order or only the last? Today the
+answer is "only the last" by accident rather than by choice, and firmware and
+calibration want opposite answers on the same device.
+
 ## docs/gotchas.md
 
 A dozen findings not documented anywhere else, several of them upstream bugs.
