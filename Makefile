@@ -309,6 +309,14 @@ v2: ## The two-transport view — one device with an IP, one without
 	done; printf '\n'
 
 .PHONY: rbac
+controller-gen: ## Regenerate deepcopy after changing any API type
+	cd controller && go run sigs.k8s.io/controller-tools/cmd/controller-gen object paths=./api/...
+
+.PHONY: controller-build
+controller-build: ## Build and test the controllers
+	cd controller && go build ./... && go test ./...
+
+.PHONY: liveness-crd
 liveness-crd: ## Install the DeviceLiveness CRD and its RBAC
 	kubectl apply -f manifests/deviceliveness-crd.yaml
 
@@ -358,7 +366,7 @@ liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
 
-.PHONY: liveness-crd rbac
+.PHONY: controller-gen controller-build liveness-crd rbac
 rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 	kubectl apply -f manifests/cloudcore-devicestatus-rbac.yaml
 	kubectl -n kubeedge rollout restart deploy/cloudcore

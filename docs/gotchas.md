@@ -196,3 +196,23 @@ Nothing downstream can tell that from a real reading. The check belongs at the
 device, which is the only place that knows whether the number means anything —
 the same conclusion as trigger-property idempotence, reached from a different
 direction.
+
+---
+
+## Building the controllers
+
+**Kubernetes API types need generated deepcopy.** `SchemeBuilder.Register`
+takes a `runtime.Object`, which requires `DeepCopyObject()`, which nobody
+writes by hand. Without it every API type fails to compile with a message about
+a missing method rather than a missing generator:
+
+```
+*DeviceLiveness does not implement runtime.Object (missing method DeepCopyObject)
+```
+
+`make controller-gen` regenerates `zz_generated.deepcopy.go`. Run it after
+changing any type in `controller/api/`.
+
+**k8s.io/* v0.32 requires Go 1.23.** Pinned to v0.31.4 and controller-runtime
+v0.19.3, which build on 1.22 and upward. Nothing in this project needs 0.32,
+and a lower floor is worth more than a newer dependency.
