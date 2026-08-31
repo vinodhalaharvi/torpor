@@ -1,0 +1,19 @@
+torpor
+Copyright (c) 2026 Vinod Halaharvi
+
+Licensed under the MIT License. Do what you want with it.
+
+Third-party components this project builds on or interoperates with, under
+their own licences:
+
+  KubeEdge (https://kubeedge.io), Apache 2.0. A CNCF graduated project.
+  mapper/esphome is generated from kubeedge/mapper-framework and retains its
+  structure; the driver implementation is ours.
+
+  ESPHome (https://esphome.io), GPLv3 and MIT depending on component.
+  Files under firmware/ are ESPHome configuration rather than derivative works
+  of ESPHome itself.
+
+MIT is compatible with both for the uses here — MIT code can be combined with
+Apache 2.0 code freely, and ESPHome configuration is not linked against
+ESPHome's GPL components.
