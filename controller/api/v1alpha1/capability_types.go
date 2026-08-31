@@ -65,6 +65,16 @@ type Transport struct {
 	OTACostMah int32 `json:"otaCostMah,omitempty"`
 }
 
+// MaxWriteBytes is what this transport can carry in a single write.
+//
+// Named separately from MaxPayloadBytes because the question a credential
+// rotation asks is not "can this carry a firmware image" but "can this carry
+// two kilobytes right now" — and a 240 byte LoRa frame answers no to both for
+// the same underlying reason but at very different magnitudes.
+func (t Transport) MaxWriteBytes() int64 {
+	return t.MaxPayloadBytes
+}
+
 // DeviceCapability is the per-device capability record.
 //
 // A separate object rather than a field on KubeEdge's Device, because that CRD
