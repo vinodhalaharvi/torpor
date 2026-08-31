@@ -120,6 +120,30 @@ func dataHandler(ctx context.Context, dev *driver.CustomizedDev) {
 	go getStates.Run(ctx)
 	// handle device twin report
 	for _, twin := range dev.Instance.Twins {
+		// A twin whose Property is nil is a device property the DeviceModel
+		// does not declare.
+		//
+		// mapper-framework builds the twin-to-property link in
+		// parse.GetDeviceFromGrpc with:
+		//
+		//	propertiesMap[instance.Properties[i].PProperty.Name] = ...
+		//
+		// When a property is not found in the model, PProperty stays
+		// zero-valued and its Name is "". Every unmatched property therefore
+		// collapses into one map entry keyed by the empty string, the lookup
+		// by real name misses, and Property is left nil — which the next line
+		// dereferences.
+		//
+		// Without this guard one mistyped property name in one Device
+		// crash-loops the mapper and takes every other device on the node down
+		// with it. The device is unmanageable either way; the rest of the
+		// fleet did nothing wrong.
+		if twin.Property == nil {
+			klog.Errorf("device %s: property %q is not declared in DeviceModel %q; skipping it. "+
+				"Add it to the model, or remove it from the Device.",
+				dev.Instance.Name, twin.PropertyName, dev.Instance.Model)
+			continue
+		}
 		twin.Property.PProperty.DataType = strings.ToLower(twin.Property.PProperty.DataType)
 		var visitorConfig driver.VisitorConfig
 

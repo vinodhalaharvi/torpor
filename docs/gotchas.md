@@ -216,3 +216,35 @@ changing any type in `controller/api/`.
 **k8s.io/* v0.32 requires Go 1.23.** Pinned to v0.31.4 and controller-runtime
 v0.19.3, which build on 1.22 and upward. Nothing in this project needs 0.32,
 and a lower floor is worth more than a newer dependency.
+
+**A Device property missing from its DeviceModel crash-loops the mapper.**
+
+`parse.GetDeviceFromGrpc` links twins to properties with:
+
+```go
+propertiesMap[instance.Properties[i].PProperty.Name] = instance.Properties[i]
+```
+
+An unmatched property leaves `PProperty` zero-valued, so its `Name` is `""`.
+Every unmatched property collapses into one map entry keyed by the empty
+string, the twin lookup by real name misses, and `twin.Property` stays nil —
+which `dataHandler` dereferences immediately.
+
+The symptom is a nil pointer panic with no mention of the property, restarting
+every five seconds under `Restart=always`, taking every other device on that
+node down with it. The tell is in the verbose instance dump, where the offending
+properties print as `{running_config_hash <nil> ...}` with empty model
+metadata `{      }` while healthy ones print their type and unit.
+
+Guarded in `device/device.go` to log the property name and skip it. Worth
+reporting upstream — one mistyped property name in one Device should not stop
+a whole edge node.
+
+**A quoted number in `configData` silently kills a device.** `expectedIntervalSeconds: "60"`
+fails to unmarshal into an `int` field. One line in the mapper's journal,
+everything upstream healthy, `kubectl get devices` showing the device present
+and fine.
+
+**Edgecore caches DeviceModels in SQLite.** Patching a model on the API server
+does not necessarily reach a mapper that already has a stale copy; restart
+edgecore first, then the mapper.
