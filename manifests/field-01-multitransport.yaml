@@ -1,0 +1,118 @@
+---
+# One device, two doors.
+#
+# This replaces the single-transport field-01. The difference is the entire
+# transport ladder: config goes out over LoRa tonight, firmware waits for WiFi,
+# and both are the same object with the same name.
+#
+# The hardware is w10-b. Physically it has WiFi and LoRa, which is exactly the
+# shape of a real field node that meets WiFi when a truck drives past — so
+# nothing here is simulated except the truck.
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-01
+  namespace: default
+  labels:
+    model: lora-sensor
+    role: field-sensor
+    transport: lora        # its primary, always-on transport
+spec:
+  deviceModelRef:
+    name: lora-sensor
+  nodeName: lima-edge
+
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+
+      # Priority order. The mapper walks this list and takes the first door
+      # that is open AND can carry the payload — which are two different
+      # questions and the reason a single "is it online" flag is not enough.
+      transports:
+        - type: lora
+          gateway: w10-a
+          nodeID: 2
+          config: true
+          ota: false            # 240 byte frames; arithmetic, not a gap
+          maxWriteBytes: 240
+          # If no frame arrives for 90s, stop believing this door is open.
+          # Without this, a link that died on Tuesday is trusted forever.
+          staleAfterSeconds: 90
+
+        - type: wifi
+          topicPrefix: w10-b
+          config: true
+          ota: true             # the only door firmware fits through
+          # Shorter, because WiFi silence means something different: a LoRa
+          # node is expected to be quiet, a WiFi one is not.
+          staleAfterSeconds: 60
+
+      expectedIntervalSeconds: 30
+      staleMultiplier: 3
+
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: temperature}
+
+    - name: humidity
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: humidity}
+
+    - name: rssi
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: rssi}
+
+    # Small enough for LoRa. Goes out over whichever door is open, which on a
+    # field node is usually the radio.
+    - name: tone_trigger
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/tone_trigger/state
+          commandTopic: text/tone_trigger/command
+          minBytes: 32
+
+    # Pinned to an OTA-capable transport. Attempting this over LoRa would
+    # truncate the URL at 240 bytes and fail in a way that looks like a radio
+    # problem, so the mapper refuses rather than tries.
+    - name: firmware_url
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+          requiresTransport: wifi
+          minBytes: 128
+
+    - name: running_config_hash
+      collectCycle: 30000
+      reportCycle: 30000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text_sensor/running_config_hash/state

@@ -41,6 +41,14 @@ type CustomizedClient struct {
 	// directly-addressed devices; for a LoRa node it is the only liveness
 	// signal there is.
 	lastFrame time.Time
+
+	// lastSeenPer records the last traffic on each transport by name, which is
+	// what lets a transport go stale independently of the device.
+	//
+	// A device is not up or down. Each of its doors is, separately, and the
+	// answer to "can I send this" depends on which door and how big the thing
+	// is.
+	lastSeenPer map[string]time.Time
 }
 
 type ProtocolConfig struct {
@@ -67,8 +75,19 @@ type ConfigData struct {
 	// LWT is what lets the mapper distinguish "gone" from "just quiet".
 	StatusTopic string `json:"statusTopic,omitempty"`
 
-	// ---- LoRa fields. Set these and the device is reached through a gateway
-	// rather than addressed directly.
+	// Transports declares every way this device can be reached, in priority
+	// order. When set it supersedes the single-transport fields below.
+	//
+	// This is what makes the transport ladder real. A node with LoRa always
+	// and WiFi opportunistically is one device with two doors, not two devices
+	// — and which door is open changes during the day without anything about
+	// the device changing.
+	//
+	// Config goes out over LoRa tonight. Firmware waits for WiFi.
+	Transports []TransportConfig `json:"transports,omitempty"`
+
+	// ---- Single-transport fields, kept for the common case and for the
+	// devices already deployed against them.
 
 	// Gateway is the topicPrefix of the board relaying for this device, e.g.
 	// "w10-a". Its /lora/rx topic carries every frame it hears.
@@ -98,6 +117,46 @@ type ConfigData struct {
 	ConnectTimeoutSeconds int `json:"connectTimeoutSeconds,omitempty"`
 }
 
+// TransportConfig is one way of reaching a device.
+//
+// Two shapes. A directly-addressed transport has a topicPrefix — the device
+// has topics of its own. A relayed transport has a gateway and a nodeID, and
+// the device has no topics anywhere: it exists only inside frames republished
+// by something else.
+type TransportConfig struct {
+	// Type: wifi, lora, thread, ble. Matched against the controller's
+	// capability table, so the names have to agree.
+	Type string `json:"type"`
+
+	// Directly addressed: the device's own MQTT prefix.
+	TopicPrefix string `json:"topicPrefix,omitempty"`
+
+	// Relayed: whose /lora/rx to listen on, and which sender id is ours.
+	Gateway string `json:"gateway,omitempty"`
+	NodeID  int    `json:"nodeID,omitempty"`
+
+	// OTA declares whether this transport can carry firmware. Not discovered
+	// by trying — the whole point is to know before attempting.
+	OTA bool `json:"ota,omitempty"`
+
+	// Config declares whether it can carry a property write. Nearly always
+	// true; a few bytes fit through almost anything.
+	Config bool `json:"config,omitempty"`
+
+	// MaxWriteBytes bounds a single write on this transport. A 240-byte LoRa
+	// frame cannot carry a firmware URL plus a hash, and finding that out by
+	// truncating the payload is worse than refusing.
+	MaxWriteBytes int `json:"maxWriteBytes,omitempty"`
+
+	// StaleAfterSeconds is how long silence on this transport means it is no
+	// longer up.
+	//
+	// This is the field that makes reachability decay. Without it a transport
+	// that was once seen is believed forever, and a planner cheerfully routes
+	// firmware to a WiFi link that has been down since Tuesday.
+	StaleAfterSeconds int `json:"staleAfterSeconds,omitempty"`
+}
+
 type VisitorConfig struct {
 	ProtocolName      string `json:"protocolName"`
 	VisitorConfigData `json:"configData"`
@@ -120,6 +179,16 @@ type VisitorConfigData struct {
 
 	// AbsoluteTopic bypasses TopicPrefix entirely when true.
 	AbsoluteTopic bool `json:"absoluteTopic,omitempty"`
+
+	// RequiresTransport pins this property to a named transport. Used for
+	// firmware_url, which must not be attempted over a transport that cannot
+	// carry it — the refusal has to happen at write time as well as at
+	// planning time, because a plan can be stale by the time it is acted on.
+	RequiresTransport string `json:"requiresTransport,omitempty"`
+
+	// MinBytes is how large a write on this property is. Compared against a
+	// transport's MaxWriteBytes before choosing it.
+	MinBytes int `json:"minBytes,omitempty"`
 
 	Retain bool `json:"retain,omitempty"`
 	QoS    byte `json:"qos,omitempty"`

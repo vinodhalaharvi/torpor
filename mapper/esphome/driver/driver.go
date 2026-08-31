@@ -20,6 +20,7 @@ func NewClient(protocol ProtocolConfig) (*CustomizedClient, error) {
 		deviceMutex:    sync.Mutex{},
 		values:         make(map[string]string),
 		stamps:         make(map[string]time.Time),
+		lastSeenPer:    make(map[string]time.Time),
 		status:         common.DeviceStatusUnknown,
 	}
 	return client, nil
@@ -93,18 +94,37 @@ func (c *CustomizedClient) InitDevice() error {
 	// Re-subscribe on every (re)connect. AutoReconnect restores the TCP
 	// session but not the subscriptions when CleanSession is true.
 	opts.SetOnConnectHandler(func(cl mqtt.Client) {
-		filter, handler := c.TopicPrefix+"/#", c.onMessage
-		if c.Gateway != "" {
-			// Subscribe to the gateway's relay topic, not to anything belonging
-			// to this device — it has no topics of its own because it has no IP.
-			filter, handler = c.Gateway+"/lora/rx", c.onLoRaFrame
+		// One subscription per transport. A device with two doors listens at
+		// both, because which one carries the next message is not knowable in
+		// advance — that is what having two doors means.
+		for _, t := range c.effectiveTransports() {
+			transport := t
+			var filter string
+			var handler mqtt.MessageHandler
+
+			switch {
+			case transport.TopicPrefix != "":
+				filter = transport.TopicPrefix + "/#"
+				handler = func(cl mqtt.Client, m mqtt.Message) {
+					c.markSeen(transport.Type)
+					c.onMessage(cl, m)
+				}
+			case transport.Gateway != "":
+				filter = transport.Gateway + "/lora/rx"
+				handler = func(cl mqtt.Client, m mqtt.Message) {
+					c.onLoRaFrameFrom(transport, m)
+				}
+			default:
+				continue
+			}
+
+			if token := cl.Subscribe(filter, 0, handler); token.Wait() && token.Error() != nil {
+				klog.Errorf("esphome-mqtt: subscribe %s failed: %v", filter, token.Error())
+				continue
+			}
+			klog.Infof("esphome-mqtt: %s subscribed to %s via %s",
+				c.subject(), filter, transport.Type)
 		}
-		if token := cl.Subscribe(filter, 0, handler); token.Wait() && token.Error() != nil {
-			klog.Errorf("esphome-mqtt: subscribe %s failed: %v", filter, token.Error())
-			return
-		}
-		klog.Infof("esphome-mqtt: %s connected to %s, subscribed to %s",
-			c.subject(), c.Broker, filter)
 	})
 
 	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
@@ -177,14 +197,26 @@ type loRaFrame struct {
 // alternative is a shared subscription with a fan-out the framework has no
 // place to hold.
 func (c *CustomizedClient) onLoRaFrame(_ mqtt.Client, msg mqtt.Message) {
+	c.onLoRaFrameFrom(TransportConfig{Type: "lora", NodeID: c.NodeID}, msg)
+}
+
+// onLoRaFrameFrom caches a frame if it came from this device's node id on this
+// transport. Marking the transport rather than the device is what lets a LoRa
+// link go stale while a WiFi link stays up on the same object.
+func (c *CustomizedClient) onLoRaFrameFrom(t TransportConfig, msg mqtt.Message) {
 	var f loRaFrame
 	if err := json.Unmarshal(msg.Payload(), &f); err != nil {
 		klog.V(4).Infof("esphome-mqtt: undecodable lora frame on %s: %v", msg.Topic(), err)
 		return
 	}
-	if f.From != c.NodeID {
+	want := t.NodeID
+	if want == 0 {
+		want = c.NodeID
+	}
+	if f.From != want {
 		return // another node's frame
 	}
+	c.markSeen(t.Type)
 
 	now := time.Now()
 	c.cacheMu.Lock()
@@ -270,34 +302,24 @@ func convert(raw string, dataType string) (interface{}, error) {
 
 // DeviceDataWrite publishes to the property's command topic. This is V1.
 func (c *CustomizedClient) DeviceDataWrite(visitor *VisitorConfig, deviceMethodName string, propertyName string, data interface{}) error {
-	// Refuse, do not attempt and time out. The gateway firmware has no
-	// downlink path yet, so a write to a LoRa node cannot succeed — and an
-	// immediate, explicit refusal is the behaviour the whole project argues
-	// for. Attempting it and reporting a timeout six hours later is what the
-	// commercial platforms do.
-	if c.Gateway != "" {
-		return fmt.Errorf("esphome-mqtt: %s is reached over lora, which has no write path: "+
-			"property %q is read-only on this transport", c.subject(), propertyName)
-	}
-	topic := c.resolve(visitor, visitor.CommandTopic)
-	if topic == "" {
-		return fmt.Errorf("esphome-mqtt: property %q has no commandTopic; it is read-only", propertyName)
+	if visitor.CommandTopic == "" {
+		return fmt.Errorf("esphome-mqtt: property %q has no commandTopic; it is read-only",
+			propertyName)
 	}
 
 	payload := format(data, visitor.DataType)
 
-	c.deviceMutex.Lock()
-	defer c.deviceMutex.Unlock()
-
-	token := c.client.Publish(topic, visitor.QoS, visitor.Retain, payload)
-	if !token.WaitTimeout(5 * time.Second) {
-		return fmt.Errorf("esphome-mqtt: timed out publishing to %s", topic)
+	// Choose a door before touching the broker.
+	//
+	// The refusal happens here as well as in the controller's planner, and the
+	// duplication is deliberate: a plan can be minutes stale by the time it is
+	// acted on, and the transport that was up when the rollout decided may not
+	// be up now. Refusing at write time is the check that is actually true.
+	t, err := c.selectTransport(visitor, len(payload))
+	if err != nil {
+		return fmt.Errorf("write %q: %w", propertyName, err)
 	}
-	if err := token.Error(); err != nil {
-		return fmt.Errorf("esphome-mqtt: publish to %s: %w", topic, err)
-	}
-	klog.V(3).Infof("esphome-mqtt: wrote %s = %s", topic, payload)
-	return nil
+	return c.writeVia(t, visitor, payload)
 }
 
 // format renders a value the way ESPHome expects it on a command topic.
