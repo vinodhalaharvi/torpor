@@ -1,34 +1,207 @@
 # torpor
 
-A Kubernetes-native control plane for physical device fleets, built on KubeEdge.
+**A Kubernetes control plane for devices that aren't there.**
 
-Devices become Kubernetes objects. Desired state is declared with `kubectl` or
-GitOps. A controller reconciles it against hardware that may be asleep, on
-battery, or reachable only over a radio link.
+*Torpor: reduced metabolic activity. An animal that is dormant, not dead, and
+will come back on its own schedule.*
 
-The differentiated layer is **capability-aware rollouts**: canary, health
-gating, rollback, and planning that accounts for devices which can receive
-config but not firmware. A rollout targeting an OTA-incapable node is refused,
-not attempted and timed out. No commercial platform models this, and nothing
-open source is both self-hosted and mesh-aware.
+```
+$ kubectl get liveness
+
+NAME       TRANSPORT  STATE      SILENT  ASSESSMENT
+w10-a      wifi       Online     2s      ReportingOnSchedule
+w10-b      wifi       Online     2s      ReportingOnSchedule
+field-01   lora       Sleeping   47s     WithinExpectedWakeInterval
+```
+
+That third row is the one Kubernetes cannot produce. Silent, expected to be
+silent, entirely healthy. A Node in that condition is `NotReady` and its pods
+get evicted.
+
+`field-01`'s object contains no IP address, no hostname, no address of any kind:
+
+```yaml
+protocol:
+  configData:
+    gateway: w10-a      # not this device
+    nodeID: 2           # one byte, and that is the whole scheme
+```
+
+Its temperature was measured by an SHT41, transmitted at 915 MHz, decoded by a
+board that happens to have WiFi, and read with `kubectl`.
+
+---
 
 ## Status
 
-V0 — read one number through the full chain.
+The honest version, because the difference matters.
 
-    kubectl get device w10-a -o jsonpath='{.status.twins[0].reported.value}'
+| | |
+|---|---|
+| **V0 — read a value** | running on hardware |
+| **V1 — write a value that actuates** | running on hardware |
+| **V2 — a device with no IP** | running on hardware |
+| **V3 — liveness, capability, rollouts** | written, compiles, unit-tested. Never run against a cluster |
 
-See `docs/roadmap-kubectl.md`. Each version is defined by what you can type.
+The V3 controllers build and the rollout planner passes tests. No reconcile loop
+has touched a live cluster, and no firmware has moved through this system.
+Compiling is not working, and this README will say so until it is.
+
+---
+
+## The problem
+
+KubeEdge is genuinely good at what it does: Device CRDs, a twin with desired and
+reported state, edge autonomy over a local SQLite cache, reliable delivery over
+unstable links, and working mappers for Modbus, OPC UA, BLE and ONVIF.
+
+It stops at the mapper. Every mapper reconciles one property on one device.
+
+The test: **if perfect mappers for every protocol shipped tomorrow, could you
+safely update forty devices?** No. Nothing about that would have changed.
+
+Missing across every protocol, not only the exotic ones:
+
+- **A fleet.** Nothing groups devices into an addressable target.
+- **Ordering.** No canary, no steps, no gate between them.
+- **Firmware as desired state.** No field says what a device should be running,
+  nothing reports what it *is* running, so nothing can converge the two.
+- **Capability.** Every platform assumes uniform capability and discovers
+  otherwise by attempting and timing out. `refused` does not exist as an outcome
+  anywhere, because you cannot refuse what you never checked.
+
+KubeEdge is to devices what kubelet is to containers. Deployment and rollout
+strategy sit above kubelet, and they are the reason anyone uses Kubernetes
+rather than a container runtime. Nothing sits above KubeEdge.
+
+## What torpor adds
+
+### DeviceLiveness
+
+Four states where Kubernetes has two. `Sleeping` is healthy and quiet.
+`Unreachable` is deliberately not `Failed` — a node under snow is unreachable
+and undamaged, and the word describes our knowledge rather than the hardware.
+
+`expectedInterval` is per-device, because a mains gateway and a battery node
+checking in daily are both healthy at wildly different rates. A single
+cluster-wide timeout — which is what a Node lease is — cannot express that.
+
+### DeviceCapability
+
+Per-transport, and time-varying.
+
+```yaml
+transports:
+  - type: lora
+    ota: false          # arithmetic, not a gap
+  - type: wifi
+    availability: opportunistic
+    ota: true
+reachableVia: [lora]    # observed, and it decays
+```
+
+`ota: false` for LoRa is not a missing feature. A 1 MB image at 1.7 kbps is
+roughly 80 minutes of continuous airtime, inside a duty cycle permitting about
+36 seconds per hour. The arithmetic does not terminate.
+
+### FirmwareRollout
+
+Deployment ergonomics, different semantics. Three outcomes:
+
+```
+refused:  field-03  NoOTACapableTransport     permanent — stop asking
+pending:  field-19  AwaitingTransportWindow   temporary — ask again later
+failed:   field-41  HealthGateFailed          the only one worth waking for
+```
+
+`field-19` is the interesting one: **Online, fully capable, and still unable to
+take this** — because the transport that is up right now cannot carry firmware.
+No commercial platform has a field to express that state.
+
+### The transport ladder
+
+One device, two doors, open at different times. Config goes out over LoRa
+tonight. Firmware waits for WiFi. Same object, same rollout.
+
+---
+
+## Borrowed from Kubernetes, and where it breaks
+
+| Kubernetes | torpor | Why it diverges |
+|---|---|---|
+| Deployment | FirmwareRollout | Same shape, same commands |
+| Argo `steps` | `steps: [1,10,50,100]` | Borrowed wholesale |
+| ReplicaSet | — | Pods are fungible; a device is on your desk |
+| `maxUnavailable` | `maxConcurrent` | You do not control availability. Asleep is asleep |
+| Pending | Pending **and** Refused | Kubernetes Pending means "not yet"; some devices mean "never" |
+| Readiness probe | `mustReportWithin` | You cannot poll a device that is asleep |
+
+**Like a Deployment, except the target might be asleep and might be incapable.**
+
+---
+
+## Hardware
+
+Two Meshnology W10 boards — ESP32-S3, SX1262 at 915 MHz, SHT41, GPS, display,
+audio. Both on ESPHome, both on WiFi, with a bidirectional LoRa link. An
+ODROID-C2 for the edge node; a Lima VM stands in for it today.
+
+The same board appears twice: `w10-b` addressed over WiFi, and `field-01`
+reached over LoRa through `w10-a`. Deliberate — it proves the difference is in
+the model, not the hardware.
 
 ## Layout
 
-    docs/       architecture, roadmap, protocol capability matrix
-    firmware/   ESPHome configs for the Meshnology W10 boards
-    manifests/  DeviceModel and Device CRs
-    mapper/     the DMI mapper — protocol adapter, like a CSI driver
-    Makefile    day-to-day ops
+```
+controller/   DeviceLiveness, FirmwareRollout, the planner — our own APIs
+mapper/       the DMI mapper: a protocol adapter, like a CSI driver
+firmware/     ESPHome configs
+manifests/    DeviceModel, Device, CRDs, RBAC
+docs/         roadmap, protocol matrix, and gotchas — read that one
+hack/         tmux workbench, first-push safety checks
+```
 
-## Setup
+## Start here
 
-Copy `firmware/secrets.yaml.example` to `firmware/secrets.yaml` and fill it in.
-Then `make check`.
+```bash
+cp firmware/secrets.yaml.example firmware/secrets.yaml   # then edit it
+make check            # every hop in the chain, with a tick or a cross
+make v0               # a temperature, via kubectl
+make v2               # the device with no address
+make bench            # four-pane workbench
+```
+
+`make` alone prints grouped help.
+
+## docs/gotchas.md
+
+A dozen findings not documented anywhere else, several of them upstream bugs.
+The pattern worth extracting: **most of them reported success.**
+
+- CloudCore installs, reports Running, and has no RBAC for the CRD it depends
+  on. Every signal green, no twin ever created. (1.23.1, still open.)
+- `optimistic: true` echoed a commanded value with the automation never running.
+  Twin converged, broker round-tripped, hardware silent.
+- ESPHome flashed a cached binary and reported `OTA successful` for firmware
+  that had never been compiled.
+- A generated config drifted from its source and silently lacked half a feature.
+
+Which produces the constraint the whole V3 layer is built on: **convergence is
+not proof of effect.** A health gate checking reported-equals-desired would have
+passed every one of those.
+
+## Prior art
+
+Wirepas reaches a similar conclusion — node roles are dynamic, so capability
+changes as the mesh reorganises — inside a proprietary stack, for its own mesh.
+Independent convergence on the same structure is evidence the structure is real.
+
+So the claim is narrower than "nobody models this": no open, transport-agnostic
+platform models it, and the closed stack that does confines it to one protocol.
+
+## Built on
+
+[KubeEdge](https://kubeedge.io) (CNCF graduated) for the device substrate,
+[ESPHome](https://esphome.io) for firmware, and Argo Rollouts for the rollout
+ergonomics. None of the substrate is reimplemented on purpose — the thesis is
+that the layer above it is missing, not that the layer below is wrong.
