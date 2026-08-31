@@ -124,3 +124,41 @@ Every entry is a default. A Device can override any of it, because a real
 deployment knows things a table cannot: a Thread node with a mains-powered
 parent, a LoRa link at SF7 rather than SF9, a gateway with a better antenna.
 The table is what to assume when nobody has said otherwise.
+
+---
+
+## The transport ladder
+
+One device, two doors, and the doors are open at different times.
+
+```yaml
+transports:
+  - type: lora
+    gateway: w10-a
+    ota: false            # 240 byte frames
+    staleAfterSeconds: 90
+  - type: wifi
+    topicPrefix: w10-b
+    ota: true
+    staleAfterSeconds: 60
+```
+
+Config goes out over LoRa tonight. Firmware waits for WiFi. Same object, same
+name, same rollout.
+
+Three questions the mapper asks before every write, and they are genuinely
+different questions:
+
+1. **Which doors could carry this at all?** A firmware URL does not fit in a
+   240-byte frame. Permanent, structural, and knowable without trying.
+2. **Which of those are open right now?** Derived from traffic, and it
+   *decays* — `staleAfterSeconds` is what stops a link that died on Tuesday
+   from being trusted on Friday.
+3. **Does this property demand a specific one?** `requiresTransport: wifi` on
+   `firmware_url`, because attempting it over LoRa truncates the URL and fails
+   in a way that looks like a radio problem.
+
+The refusal is duplicated in the controller's planner and in the mapper's write
+path, deliberately. A plan can be minutes stale by the time it is acted on, and
+the transport that was up when the rollout decided may not be up now. The write
+path is the check that is actually true.
