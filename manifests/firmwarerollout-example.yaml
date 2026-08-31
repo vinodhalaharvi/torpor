@@ -1,0 +1,71 @@
+---
+# A rollout that refuses.
+#
+# Everything up to this file has been KubeEdge with a driver underneath. This
+# is the layer that does not exist anywhere: a rollout that works out what it
+# CANNOT do before it starts, rather than attempting everything and reporting
+# timeouts hours later.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FirmwareRollout
+metadata:
+  name: sensors-v42
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      role: field-sensor
+
+  source:
+    package: oci://registry.local/w10-field:42
+    # What the device must report about its own running state to prove it
+    # applied this. Deliberately not an echo of what it was told — a device can
+    # acknowledge an instruction it never carried out, which has already
+    # happened once in this project.
+    configHash: "43fdb47c"
+    sizeBytes: 1163019
+
+  # Checked before anything is transmitted. This block is why the project
+  # exists.
+  requires:
+    ota: true                 # refuse anything with no firmware-capable transport
+    minBatteryPercent: 20     # refuse anything the update would leave too low
+    maxSilentFor: 24h         # do not push firmware to a fleet you have lost
+
+  strategy:
+    canary: 1
+    steps: [1, 10, 50, 100]   # cumulative, of ELIGIBLE — not of target
+    maxConcurrent: 1          # the channel is the scarce resource, not the CPU
+    healthGate:
+      mustReportWithin: 5m
+      mustReportConfigHash: true
+      settleFor: 10m          # a device that boots, reports, then boot-loops
+                              # is not healthy, and one check would call it so
+    rollbackOn:
+      bootLoopThreshold: 2
+      healthGateFailures: 1   # stop early and think; this is hardware
+      automatic: false
+
+# Expected status, and the three columns nothing else produces:
+#
+#   $ kubectl get firmwarerollout sensors-v42
+#   NAME          TARGET  ELIGIBLE  REFUSED  UPDATED  HEALTHY  PHASE   STEP
+#   sensors-v42   47      31        11       1        1        Canary  1/4
+#
+# status:
+#   refused:
+#     - device: field-03
+#       reason: NoOTACapableTransport
+#       detail: "transports: lora — none can carry firmware"
+#     - device: field-41
+#       reason: OTAExceedsBatteryBudget
+#       detail: "34 mAh of 210 mAh remaining (16%)"
+#   pending:
+#     - device: field-19
+#       reason: AwaitingTransportWindow
+#       detail: "reachable via [lora], none OTA-capable"
+#     - device: field-07
+#       reason: DeviceSleeping
+#       detail: "silent 3h12m, next expected by 2026-08-31T04:00:00Z"
+#
+# Refused is permanent: stop asking. Pending is temporary: ask again later.
+# Failed is the only one of the three worth waking anybody up for.

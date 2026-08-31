@@ -108,6 +108,16 @@ type DeviceLivenessStatus struct {
 	// +optional
 	Gateway string `json:"gateway,omitempty"`
 
+	// Capability is what this device can currently do, per transport.
+	//
+	// It lives on the liveness object rather than on KubeEdge's Device because
+	// half of it is observed rather than declared — ReachableVia and battery
+	// change without anyone editing a spec. A rollout planner reads one object
+	// to answer both "is it there" and "can it take this", which are the only
+	// two questions it has.
+	// +optional
+	Capability *DeviceCapability `json:"capability,omitempty"`
+
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
