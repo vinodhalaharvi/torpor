@@ -1,0 +1,60 @@
+---
+# Turning fifteen boards in a box into fifteen Device objects.
+#
+# The shape is a certificate signing request, deliberately. A device announcing
+# "I am field-01 on gateway gw-north as node 2" is making a claim, not stating
+# a fact — anyone who can reach the broker can announce anything. Kubernetes
+# already has the right pattern: the claim arrives, something approves it, and
+# only then does the identity exist.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: DeviceEnrollment
+metadata:
+  name: north-ridge-intake
+  namespace: default
+spec:
+  announceTopic: torpor/announce/+
+  nodeName: edge-01
+
+  # Default false, and it should stay false anywhere that matters. An
+  # announcement is a claim from an unauthenticated source; auto-approving
+  # means anybody who can reach the broker can add devices to your fleet and
+  # have your rollouts push firmware at them.
+  autoApprove: false
+
+  # The useful middle ground, and probably the right setting for a real
+  # deployment. You already wrote down which fifteen devices you ordered, so a
+  # device claiming to be one of them is checkable — and one claiming otherwise
+  # is not something you want to discover during a rollout.
+  requireTemplate: north-ridge-sensors
+
+  allowedModels:
+    - heltec-v3
+    - meshnology-w10
+    - esp32-c6-devkit
+
+  labels:
+    site: north-ridge
+    intake: 2026-q3
+
+  # A pending list nobody has cleared is a pending list nobody reads. A device
+  # announced once during a bench test should not linger forever demanding
+  # attention it does not deserve.
+  expirePendingAfter: 168h    # 7 days
+
+# Expected status:
+#
+#   $ kubectl get enroll
+#   NAME                  ENROLLED  PENDING  REJECTED
+#   north-ridge-intake    12        2        1
+#
+# status:
+#   pending:
+#     - device: field-14
+#       model: heltec-v3
+#       gateway: gw-north
+#       nodeID: 15
+#       conflicts:
+#         - "announces v39 while the fleet expects v42 — will enroll already drifted"
+#   rejected:
+#     - device: rogue-01
+#       conflicts: ["claims model \"unknown-board\"; allowed: [heltec-v3 ...]"]

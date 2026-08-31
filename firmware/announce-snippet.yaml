@@ -1,0 +1,52 @@
+# Add to any ESPHome device config to make it announce itself.
+#
+# This is the piece that closes the provisioning gap. Without it, a device
+# arriving in a box becomes a Device object because somebody typed one — and
+# transcription is where node ids get swapped.
+#
+# The identity comes from substitutions set at flash time:
+#
+#   DEVICE_ID=field-01 NODE_ID=2 GATEWAY=gw-north \
+#     esphome run field-node.yaml --device /dev/cu.usbmodem1101
+#
+# First flash is physical, over USB, once per device. That is not a limitation
+# to engineer around — a device that can be fully provisioned over the air by
+# anyone is a device anyone can steal.
+
+substitutions:
+  device_id: w10-a
+  node_id: "1"
+  gateway: ""              # empty for a directly-addressed device
+  device_model: meshnology-w10
+  firmware_hash: "43fdb47c"
+
+# Retained, so a device that announced before the controller started is not
+# lost. The control plane learns a device exists because the device said so.
+#
+# Every field here is a CLAIM. Anyone who can reach the broker can publish this
+# topic, which is exactly why enrollment requires approval — see
+# DeviceEnrollment. Treating an announcement as observed truth is the mistake
+# the approval step exists to prevent.
+mqtt:
+  on_connect:
+    - mqtt.publish:
+        topic: torpor/announce/${device_id}
+        retain: true
+        payload: !lambda |-
+          char buf[320];
+          snprintf(buf, sizeof(buf),
+            "{\"device\":\"${device_id}\","
+            "\"model\":\"${device_model}\","
+            "\"gateway\":\"${gateway}\","
+            "\"nodeID\":${node_id},"
+            "\"topicPrefix\":\"${device_id}\","
+            "\"configHash\":\"${firmware_hash}\","
+            "\"firmwareVersion\":\"%s\","
+            "\"buildTime\":\"%s\"}",
+            ESPHOME_VERSION, __DATE__ " " __TIME__);
+          return std::string(buf);
+
+# buildTime is worth carrying. A device announcing a build older than the
+# current firmware was flashed from a stale cache — which happened here, cost
+# an hour, and is far cheaper to catch at enrollment than after the device has
+# joined a fleet and started drifting.
