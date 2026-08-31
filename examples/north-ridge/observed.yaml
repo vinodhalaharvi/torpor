@@ -1,0 +1,47 @@
+# What the devices have reported.
+#
+# Not a real CRD — it stands in for live twin state so a plan can be run
+# against a fleet that does not exist yet, which is the point of planning
+# before buying the hardware.
+---
+kind: ObservedState
+metadata: {name: gw-north}
+spec:
+  lastSeen: "2026-08-31T03:59:30Z"
+  certExpiry: "2027-06-01T00:00:00Z"
+  reported: {running_config_hash: "b7d2e10", battery_percent: "100", reachable_via: "wifi"}
+---
+kind: ObservedState
+metadata: {name: field-01}
+spec:
+  lastSeen: "2026-08-31T03:46:00Z"
+  certExpiry: "2026-10-30T00:00:00Z"
+  reported: {running_config_hash: "9c1a880", battery_percent: "61", reachable_via: "lora"}
+---
+# Online over LoRa; WiFi is out of range right now.
+kind: ObservedState
+metadata: {name: field-19}
+spec:
+  lastSeen: "2026-08-31T03:52:00Z"
+  certExpiry: "2027-01-15T00:00:00Z"
+  reported: {running_config_hash: "9c1a880", battery_percent: "72", reachable_via: "lora"}
+---
+kind: ObservedState
+metadata: {name: field-33}
+spec:
+  lastSeen: "2026-08-27T01:00:00Z"
+  certExpiry: "2026-09-20T00:00:00Z"
+  reported: {running_config_hash: "9c1a880", battery_percent: "8", reachable_via: ""}
+---
+kind: ObservedState
+metadata: {name: field-41}
+spec:
+  lastSeen: "2026-08-31T03:59:00Z"
+  certExpiry: "2027-03-01T00:00:00Z"
+  reported: {running_config_hash: "9c1a880", battery_percent: "18", reachable_via: "wifi"}
+---
+kind: ObservedState
+metadata: {name: field-22}
+spec:
+  lastSeen: "2026-08-11T03:14:00Z"
+  reported: {running_config_hash: "9c1a880", battery_percent: "0", reachable_via: ""}
