@@ -236,6 +236,16 @@ Independent convergence on the same structure is evidence the structure is real.
 So the claim is narrower than "nobody models this": no open, transport-agnostic
 platform models it, and the closed stack that does confines it to one protocol.
 
+## License
+
+MIT. Do what you want with it.
+
+Chosen over Apache 2.0 deliberately. Apache's patent grant would be worth
+having in a space with existing commercial products, and giving it up is a real
+trade — but the point of this being open is that somebody with a real fleet
+tries it, and the shortest licence is the one nobody has to send to legal
+first.
+
 ## Built on
 
 [KubeEdge](https://kubeedge.io) (CNCF graduated) for the device substrate,
