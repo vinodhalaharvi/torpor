@@ -131,10 +131,10 @@ rules:
     resources: [devices]
     verbs: [get, list, watch, update, patch]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries, maintenancewindows, fleetqueries]
+    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries, maintenancewindows, fleetqueries, devicetemplates]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status, maintenancewindows/status, fleetqueries/status]
+    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status, maintenancewindows/status, fleetqueries/status, devicetemplates/status]
     verbs: [get, update, patch]
   - apiGroups: [""]
     resources: [events]
@@ -452,4 +452,79 @@ spec:
                     an expression language: an operator at 3am should be able
                     to tell what this selects without evaluating precedence.
                   x-kubernetes-preserve-unknown-fields: true
+            status: {type: object, x-kubernetes-preserve-unknown-fields: true}
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: devicetemplates.fleet.torpor.io
+spec:
+  group: fleet.torpor.io
+  scope: Namespaced
+  names: {kind: DeviceTemplate, listKind: DeviceTemplateList, plural: devicetemplates, singular: devicetemplate, shortNames: [dt, template]}
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Instances,    type: integer, jsonPath: .status.instances}
+        - {name: Created,      type: integer, jsonPath: .status.created}
+        - {name: Orphaned,     type: integer, jsonPath: .status.orphaned}
+        - {name: Last-Applied, type: string,  jsonPath: .status.lastApplied}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [deviceModelRef]
+              properties:
+                deviceModelRef: {type: string}
+                prune:
+                  type: boolean
+                  description: >
+                    Default false, and the default is the point. A device
+                    vanishing from a template is far more likely to be an
+                    editing mistake than a decommissioning, and the costs are
+                    not symmetrical — a stale Device is clutter, a deleted one
+                    takes its twin history with it.
+                labels: {type: object, additionalProperties: {type: string}}
+                protocol:
+                  type: object
+                  properties:
+                    name: {type: string}
+                    configData: {type: object, additionalProperties: {type: string}}
+                properties:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: {type: string}
+                      collectCycle: {type: integer}
+                      reportCycle: {type: integer}
+                      reportToCloud: {type: boolean}
+                      desired: {type: string}
+                      visitors: {type: object, additionalProperties: {type: string}}
+                instances:
+                  type: array
+                  description: >
+                    Inline rather than referenced. A fleet's device list is the
+                    most valuable thing in the cluster and should be reviewable
+                    in a diff.
+                  items:
+                    type: object
+                    required: [name]
+                    properties:
+                      name: {type: string}
+                      vars: {type: object, additionalProperties: {type: string}}
+                      labels: {type: object, additionalProperties: {type: string}}
+                      overrides:
+                        type: object
+                        additionalProperties: {type: string}
+                        description: >
+                          Calibration offsets live here. An offset is a
+                          measured property of one physical object, discovered
+                          after deployment, and it belongs next to that object.
             status: {type: object, x-kubernetes-preserve-unknown-fields: true}
