@@ -354,6 +354,20 @@ capability: ## What each device can do, per transport
 	@printf '\n'
 
 .PHONY: refused
+drift: ## Is the fleet still running what it should be?
+	@kubectl get fleetdrift -n $(NAMESPACE) 2>/dev/null || \
+	  printf '  $(WARN) no FleetDrift objects\n'
+
+.PHONY: expiry
+expiry: ## Who goes dark, when, and who needs a truck
+	@kubectl get credentialexpiry -n $(NAMESPACE) -o json 2>/dev/null | jq -r '
+	  .items[] | (.status.devices // [])[]
+	  | select(.state != "Healthy")
+	  | "\(.device)\t\(.state)\t\(.timeLeft)\t\(.actionRequired)"' \
+	  | awk -F'\t' 'BEGIN{printf "\n  %-12s %-9s %-9s %s\n  %-12s %-9s %-9s %s\n", "DEVICE","STATE","LEFT","ACTION","------------","---------","---------","------"} {printf "  %-12s %-9s %-9s %s\n", $$1,$$2,$$3,$$4} END{print ""}' \
+	  || printf '  $(WARN) nothing to report\n'
+
+.PHONY: refused
 refused: ## Why each device was refused or is pending — the planning result
 	@kubectl get firmwarerollout -n $(NAMESPACE) -o json 2>/dev/null | jq -r '
 	  .items[] | .metadata.name as $$r
@@ -361,7 +375,7 @@ refused: ## Why each device was refused or is pending — the planning result
 	    ((.status.pending // [])[] | "\($$r)  PENDING  \(.device)  \(.reason)  \(.detail)")' \
 	  | column -t -s'  ' || printf '  $(WARN) nothing to report\n'
 
-.PHONY: serve-fw rollout-demo rollouts capability refused liveness
+.PHONY: serve-fw rollout-demo rollouts capability drift expiry refused liveness
 liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
