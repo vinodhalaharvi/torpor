@@ -164,6 +164,17 @@ func (o *organism) connect(broker string) error {
 		c.Subscribe(prefix+"/+/+/command", 0, o.onCommand)
 		// Retained birth, so the mapper's liveness signal is real.
 		c.Publish(prefix+"/status", 0, true, "online")
+
+		// And announce. The vivarium should satisfy the contract it exists to
+		// test against — otherwise `torpor verify` against a vivarium device
+		// reports gaps that are the vivarium's rather than the contract's,
+		// which is exactly what happened the first time it was run.
+		c.Publish("torpor/announce/"+o.dev.Name, 0, true, fmt.Sprintf(
+			`{"device":%q,"model":"vivarium","gateway":%q,"nodeID":%d,`+
+				`"topicPrefix":%q,"configHash":%q,"firmwareVersion":"vivarium",`+
+				`"buildTime":%q}`,
+			o.dev.Name, o.dev.Gateway, o.dev.NodeID, prefix,
+			o.runningHash, time.Now().UTC().Format(time.RFC3339)))
 	})
 	opts.SetWill(prefix+"/status", "offline", 0, true)
 
@@ -268,6 +279,13 @@ func (o *organism) onCommand(_ mqtt.Client, m mqtt.Message) {
 	if !strings.Contains(topic, "firmware_url") {
 		return
 	}
+
+	// Echo first, always — before deciding whether to act.
+	//
+	// The contract asks for the echo so a controller can tell "received" from
+	// "acted on", and a device that echoes only on success makes those two
+	// indistinguishable. Even a no-op gets echoed.
+	o.pubAs(o.topicPrefix()+"/text/firmware_url/state", payload)
 
 	bar := strings.Index(payload, "|")
 	if bar < 0 {
