@@ -107,6 +107,38 @@ Collapsing `Blocked` into `Waiting` would be the same class of error as
 collapsing `Refused` into `Failed`: it takes a situation with a clear owner and
 a known resolution time and reports it as an unexplained absence.
 
+## FleetQuery: selecting on things labels cannot express
+
+Kubernetes selects by label because a pod's interesting properties are things
+somebody decided — which app, which tier, which version. A device's interesting
+properties are things the *world* decided: what it is running, whether it can
+be reached, how much battery it has left, whether it can accept firmware at all.
+
+You cannot label your way to "everything drifted and still fixable remotely",
+because both halves change without anybody editing a label. A label recording a
+fact the world controls is a label that will be wrong.
+
+```yaml
+spec:
+  where:
+    runningConfigHash: {notIn: ["v42"]}
+    otaReachable: true
+```
+
+The useful output is rarely the count:
+
+```
+4 matched, 1 actionable now, 3 need something else
+  w10-b     actionable=true
+  field-01  actionable=false  sleeping
+  field-19  actionable=false  ota transport not up
+  field-33  actionable=false  unreachable
+```
+
+Same drift number, three different responses. One is a rollout, one is waiting,
+one is a truck. A tool that reports only "4 drifted" has told you nothing about
+which.
+
 ## Composition rules
 
 **Deny beats Allow, across objects as well as within one.** Overlapping
