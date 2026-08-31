@@ -121,6 +121,9 @@ const (
 	DriftWithinGrace     = "WithinGracePeriod"
 	DriftDeviceSleeping  = "DriftedButSleeping"
 	DriftNotRemediable   = "DriftedNoCapableTransport"
+	// Capable, online, and the door that could fix it is shut. The drift
+	// equivalent of a rollout's AwaitingTransportWindow.
+	DriftAwaitingWindow  = "DriftedAwaitingTransportWindow"
 	DriftNeedsAttention  = "DriftedAndReachable"
 	DriftStateUnknown    = "StateUnknown"
 )

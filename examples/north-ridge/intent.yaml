@@ -1,0 +1,85 @@
+---
+apiVersion: fleet.torpor.io/v1alpha1
+kind: MaintenanceWindow
+metadata: {name: north-ridge-nightly}
+spec:
+  selector: {matchLabels: {site: north-ridge}}
+  timezone: UTC
+  allow:
+    - {cron: "0 2 * * *", duration: 3h, reason: nightly maintenance}
+  deny:
+    - from: "2026-12-20T00:00:00Z"
+      until: "2027-01-05T00:00:00Z"
+      reason: holiday change freeze
+  maxDevicesPerWindow: 10
+---
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FirmwareRollout
+metadata: {name: sensors-v42}
+spec:
+  selector: {matchLabels: {role: field-sensor}}
+  source:
+    package: oci://registry.local/field-sensor:42
+    configHash: "b7d2e10"
+    sizeBytes: 1163019
+  requires:
+    ota: true
+    minBatteryPercent: 25
+  strategy:
+    canary: 1
+    steps: [1, 10, 50, 100]
+    maxConcurrent: 1
+    healthGate: {mustReportWithin: 30m, mustReportConfigHash: true}
+---
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetDrift
+metadata: {name: field-sensor-drift}
+spec:
+  selector: {matchLabels: {role: field-sensor}}
+  expect: {configHash: "b7d2e10"}
+  gracePeriod: 4h
+---
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetQuery
+metadata: {name: drifted-total}
+spec:
+  where: {runningConfigHash: {notIn: ["b7d2e10"]}}
+---
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetQuery
+metadata: {name: drifted-and-fixable}
+spec:
+  where:
+    runningConfigHash: {notIn: ["b7d2e10"]}
+    otaReachable: true
+---
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetQuery
+metadata: {name: needs-site-visit}
+spec:
+  where: {batteryBelowPercent: 20, otaCapable: false}
+---
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetQuery
+metadata: {name: awaiting-wifi-window}
+spec:
+  where:
+    transport: {equals: wifi}
+    reachableVia: {notIn: ["wifi"]}
+---
+apiVersion: fleet.torpor.io/v1alpha1
+kind: CredentialExpiry
+metadata: {name: field-sensor-certs}
+spec:
+  selector: {matchLabels: {role: field-sensor}}
+  warnBefore: 2160h   # 90 days. Go durations have no day unit.
+  rotationSizeBytes: 2048
+---
+apiVersion: fleet.torpor.io/v1alpha1
+kind: DeviceDecommission
+metadata: {name: field-22-stolen}
+spec:
+  deviceRef: field-22
+  reason: Stolen
+  detail: "enclosure cut open, last contact 03:14, police ref 2026-88131"
+  effectiveFrom: "2026-08-11T03:14:00Z"

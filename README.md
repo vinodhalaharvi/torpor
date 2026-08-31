@@ -173,6 +173,37 @@ make bench            # four-pane workbench
 
 `make` alone prints grouped help.
 
+## Try it without hardware
+
+```bash
+make plan
+```
+
+Reads manifests, runs the same assessment code the controllers run, and prints
+every decision. Writes nothing.
+
+```
+torpor plan  2026-08-31 04:00 UTC  —  5 devices, 1 excluded as decommissioned
+
+── rollouts ───────────────────────────────────────────────
+  sensors-v42  target=5 eligible=1 refused=3 pending=1
+    canary would be: gw-north
+    REFUSED field-01  ArtifactExceedsTransportCapacity  lora — none can carry firmware
+    REFUSED field-41  OTAExceedsBatteryBudget           18% remaining, floor is 25%
+    PENDING field-19  AwaitingTransportWindow           reachable via [lora], none OTA-capable
+
+── credentials ────────────────────────────────────────────
+  field-sensor-certs  healthy=3 expiring=0 atRisk=2 expired=0
+    AtRisk  field-01  left=59d20h  via=[]  schedule site visit before 2026-10-30
+```
+
+Every object here exists to make a decision *before* anything is transmitted.
+A tool that shows those decisions before you commit to them is the natural
+interface to a system built on refusing early.
+
+It shares code with the reconcilers rather than reimplementing them — a dry run
+that exercises different code from the real thing is a dry run that lies.
+
 ## See it all at once
 
 `docs/walkthrough.md` — every object, told as one fleet: forty-seven sensors at

@@ -256,10 +256,43 @@ func (r *LivenessReconciler) lastReport(
 func (r *LivenessReconciler) deriveCapability(
 	ctx context.Context, key types.NamespacedName, dev *unstructured.Unstructured,
 ) *fleetv1.DeviceCapability {
-	cap := &fleetv1.DeviceCapability{}
 	cfg, _, _ := unstructured.NestedMap(dev.Object, "spec", "protocol", "configData")
+	cap := DeriveCapabilityFrom(cfg, dev.GetLabels())
 
-	// 1. Explicit declaration wins.
+	// 4. What it says it is running, which the health gate compares against.
+	cap.RunningConfigHash = r.reportedProperty(ctx, key, "running_config_hash")
+
+	if v := r.reportedProperty(ctx, key, "battery_percent"); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
+			cap.BatteryPercent = int32(n)
+		}
+	}
+	if v := r.reportedProperty(ctx, key, "battery_mah"); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
+			cap.BatteryMah = int32(n)
+		}
+	}
+	return cap
+}
+
+// DeriveCapabilityFrom works out what a device can do, from its protocol
+// config and labels alone.
+//
+// Split out from the reconciler so it can run without a cluster — the dry-run
+// planner calls exactly this, which is the point: a dry run that exercises
+// different code from the real thing is a dry run that lies.
+//
+// Three sources, descending authority. An explicit transports block, because a
+// human knows things a table does not. Then the transport implied by how the
+// device is addressed — a gateway means LoRa, an IP means WiFi. Then defaults.
+//
+// Derived, never probed. Probing means attempting, and attempting is precisely
+// what this model exists to avoid.
+func DeriveCapabilityFrom(
+	cfg map[string]interface{}, labels map[string]string,
+) *fleetv1.DeviceCapability {
+	cap := &fleetv1.DeviceCapability{}
+
 	if raw, found, _ := unstructured.NestedSlice(cfg, "transports"); found {
 		for _, item := range raw {
 			m, ok := item.(map[string]interface{})
@@ -280,6 +313,9 @@ func (r *LivenessReconciler) deriveCapability(
 			if v, err := toInt64(m["otaCostMah"]); err == nil && v > 0 {
 				t.OTACostMah = int32(v)
 			}
+			if v, err := toInt64(m["maxWriteBytes"]); err == nil && v > 0 {
+				t.MaxPayloadBytes = v
+			}
 			if v, err := toInt64(m["maxPayloadBytes"]); err == nil && v > 0 {
 				t.MaxPayloadBytes = v
 			}
@@ -287,14 +323,13 @@ func (r *LivenessReconciler) deriveCapability(
 		}
 	}
 
-	// 2. Infer from how the device is addressed.
 	if len(cap.Transports) == 0 {
 		if _, hasGateway := cfg["gateway"]; hasGateway {
 			// No address of its own, reached through something else. That is
 			// the definition of the LoRa case in this project.
 			cap.Transports = append(cap.Transports, defaultTransport("lora"))
 		} else {
-			name := dev.GetLabels()["transport"]
+			name := labels["transport"]
 			if name == "" {
 				name = "wifi"
 			}
@@ -302,34 +337,12 @@ func (r *LivenessReconciler) deriveCapability(
 		}
 	}
 
-	// 3. What is up RIGHT NOW, as opposed to what exists.
-	//
-	// This is the field that makes capability time-varying. A node with both
-	// LoRa and WiFi declared is only OTA-eligible while WiFi is actually
-	// reachable, which is why a rollout can be Pending on a device that is
-	// Online and fully capable.
+	// What is up RIGHT NOW, as opposed to what exists. The field that makes
+	// capability time-varying, and the reason a rollout can be Pending on a
+	// device that is Online and fully capable.
 	for _, t := range cap.Transports {
 		if t.Availability == "always" {
 			cap.ReachableVia = append(cap.ReachableVia, t.Type)
-		}
-	}
-	if v := r.reportedProperty(ctx, key, "ip_address"); v != "" && v != "0.0.0.0" {
-		if !contains(cap.ReachableVia, "wifi") && hasTransport(cap, "wifi") {
-			cap.ReachableVia = append(cap.ReachableVia, "wifi")
-		}
-	}
-
-	// 4. What it says it is running, which the health gate compares against.
-	cap.RunningConfigHash = r.reportedProperty(ctx, key, "running_config_hash")
-
-	if v := r.reportedProperty(ctx, key, "battery_percent"); v != "" {
-		if n, err := strconv.ParseFloat(v, 64); err == nil {
-			cap.BatteryPercent = int32(n)
-		}
-	}
-	if v := r.reportedProperty(ctx, key, "battery_mah"); v != "" {
-		if n, err := strconv.ParseFloat(v, 64); err == nil {
-			cap.BatteryMah = int32(n)
 		}
 	}
 	return cap

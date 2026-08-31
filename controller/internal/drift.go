@@ -15,15 +15,35 @@ import (
 // during a rollout, which is why it is cheap. What it adds is the two columns
 // a bare comparison cannot produce: how long a device has been wrong, and
 // whether it can be fixed without a truck.
+// expectSetAt is when the expectation last changed. Grace is measured from
+// there, not from a device's last contact.
+//
+// Measuring from lastSeen was wrong in a way the dry run made obvious: a device
+// reporting the wrong hash every 30 seconds was permanently "within grace" and
+// counted as converged, while a correct device that had been quiet for a day
+// was not. Exactly backwards. Grace exists because a fleet mid-rollout
+// legitimately disagrees for a while — that is a property of the rollout, not
+// of any individual device's chattiness.
 func AssessDrift(
 	spec *fleetv1.FleetDriftSpec,
 	livenesses []fleetv1.DeviceLiveness,
 	now time.Time,
 ) fleetv1.FleetDriftStatus {
+	return AssessDriftSince(spec, livenesses, time.Time{}, now)
+}
+
+func AssessDriftSince(
+	spec *fleetv1.FleetDriftSpec,
+	livenesses []fleetv1.DeviceLiveness,
+	expectSetAt time.Time,
+	now time.Time,
+) fleetv1.FleetDriftStatus {
 	out := fleetv1.FleetDriftStatus{Total: int32(len(livenesses))}
-	grace := time.Duration(0)
-	if spec.GracePeriod != nil {
-		grace = spec.GracePeriod.Duration
+	// Fleet-wide, and computed once: either the expectation is new enough that
+	// disagreement is expected, or it is not.
+	inGrace := false
+	if spec.GracePeriod != nil && !expectSetAt.IsZero() {
+		inGrace = now.Sub(expectSetAt) < spec.GracePeriod.Duration
 	}
 	var oldest time.Duration
 
@@ -57,9 +77,10 @@ func AssessDrift(
 		if l.Status.LastSeen != nil {
 			age = now.Sub(l.Status.LastSeen.Time)
 		}
-		if grace > 0 && age < grace {
-			// Mid-rollout, or a sleeping node reporting late rather than
-			// wrongly. Without this every rollout trips its own drift alarm.
+		if inGrace {
+			// The expectation changed recently and the fleet has not caught up
+			// yet. Without this every rollout trips its own drift alarm on its
+			// first pass.
 			out.Converged++
 			continue
 		}
@@ -86,6 +107,11 @@ func AssessDrift(
 			// Drifted and unfixable over anything it has. Categorically
 			// different from drifted and one write away.
 			d.Assessment = fleetv1.DriftNotRemediable
+		case !reachableOverOTA(cap):
+			// Capable, online, and the door that could fix it is shut. The
+			// dry run caught this reading as DriftedAndReachable next to
+			// remediable=false, which is a contradiction on one line.
+			d.Assessment = fleetv1.DriftAwaitingWindow
 		case l.Status.State == fleetv1.StateSleeping,
 			l.Status.State == fleetv1.StateUnreachable:
 			// The row this whole project is about. A battery node silent for

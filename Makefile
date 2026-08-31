@@ -313,6 +313,14 @@ controller-gen: ## Regenerate deepcopy after changing any API type
 	cd controller && go run sigs.k8s.io/controller-tools/cmd/controller-gen object paths=./api/...
 
 .PHONY: controller-build
+plan: ## Dry run — what would happen, without touching a cluster
+	cd controller && go run ./cmd/plan --dir ../examples/north-ridge
+
+.PHONY: plan-dir
+plan-dir: ## Dry run against your own manifests: make plan-dir DIR=manifests
+	cd controller && go run ./cmd/plan --dir ../$(or $(DIR),manifests)
+
+.PHONY: controller-build
 controller-build: ## Build and test the controllers
 	cd controller && go build ./... && go test ./...
 
@@ -436,7 +444,7 @@ liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
 
-.PHONY: controller-gen controller-build liveness-crd rbac
+.PHONY: controller-gen plan plan-dir controller-build liveness-crd rbac
 rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 	kubectl apply -f manifests/cloudcore-devicestatus-rbac.yaml
 	kubectl -n kubeedge rollout restart deploy/cloudcore

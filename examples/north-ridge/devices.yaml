@@ -1,0 +1,104 @@
+# A fleet you can plan against without owning it.
+#
+# Six devices covering every case the model distinguishes: a mains gateway, a
+# LoRa-only node, a dual-transport node with WiFi currently down, a sleeping
+# node, a dead one, and one that was stolen.
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: gw-north
+  labels: {role: field-sensor, site: north-ridge, transport: wifi}
+spec:
+  deviceModelRef: {name: esphome-w10}
+  nodeName: edge-01
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://10.0.4.2:1883
+      topicPrefix: gw-north
+      expectedIntervalSeconds: "60"
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-01
+  labels: {role: field-sensor, site: north-ridge, transport: lora}
+spec:
+  deviceModelRef: {name: lora-sensor}
+  nodeName: edge-01
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://10.0.4.2:1883
+      gateway: gw-north
+      nodeID: 2
+      expectedIntervalSeconds: "1800"
+---
+# Two doors. WiFi is declared but opportunistic — it is up when a truck passes.
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-19
+  labels: {role: field-sensor, site: north-ridge, transport: lora}
+spec:
+  deviceModelRef: {name: lora-sensor}
+  nodeName: edge-01
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://10.0.4.2:1883
+      expectedIntervalSeconds: "1800"
+      transports:
+        - {type: lora, availability: always,        config: true, ota: false, maxWriteBytes: 240}
+        - {type: wifi, availability: opportunistic, config: true, ota: true,  otaCostMah: 34}
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-33
+  labels: {role: field-sensor, site: north-ridge, transport: lora}
+spec:
+  deviceModelRef: {name: lora-sensor}
+  nodeName: edge-01
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://10.0.4.2:1883
+      gateway: gw-north
+      nodeID: 34
+      expectedIntervalSeconds: "1800"
+---
+# Battery nearly gone. Eligible on capability, refused on energy.
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-41
+  labels: {role: field-sensor, site: north-ridge, transport: wifi}
+spec:
+  deviceModelRef: {name: esphome-w10}
+  nodeName: edge-01
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://10.0.4.2:1883
+      topicPrefix: field-41
+      expectedIntervalSeconds: "300"
+      transports:
+        - {type: wifi, availability: always, config: true, ota: true, otaCostMah: 40}
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-22
+  labels: {role: field-sensor, site: north-ridge, transport: lora}
+spec:
+  deviceModelRef: {name: lora-sensor}
+  nodeName: edge-01
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://10.0.4.2:1883
+      gateway: gw-north
+      nodeID: 23
+      expectedIntervalSeconds: "1800"

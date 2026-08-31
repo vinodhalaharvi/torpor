@@ -135,6 +135,17 @@ func (c *DeviceCapability) OTAAffordable(minPercentAfter int32) (bool, string) {
 	if c.BatteryPercent == 0 || minPercentAfter == 0 {
 		return true, ""
 	}
+
+	// Already below the floor. Checked before the cost arithmetic because the
+	// arithmetic needs BatteryMah, which is frequently unknown — and a device
+	// at 18% against a floor of 25% should be refused whether or not anyone
+	// can compute what the transfer would cost. The dry run surfaced this:
+	// field-41 was eligible at 18% with a 25% requirement, because the cost
+	// was unknown and unknown silently meant yes.
+	if c.BatteryPercent < minPercentAfter {
+		return false, itoa(c.BatteryPercent) + "% remaining, floor is " +
+			itoa(minPercentAfter) + "%"
+	}
 	var cost int32
 	for _, t := range c.Transports {
 		if t.OTA && t.OTACostMah > cost {
