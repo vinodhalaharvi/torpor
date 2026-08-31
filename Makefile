@@ -313,6 +313,16 @@ controller-gen: ## Regenerate deepcopy after changing any API type
 	cd controller && go run sigs.k8s.io/controller-tools/cmd/controller-gen object paths=./api/...
 
 .PHONY: controller-build
+vivarium: ## Run a fleet of devices under observation, with an embedded broker
+	cd controller && go run ./cmd/vivarium --fleet ../examples/vivarium/north-ridge.yaml
+
+.PHONY: vivarium-real
+vivarium-real: ## Same fleet, but on your real broker alongside real hardware
+	cd controller && go run ./cmd/vivarium \
+	  --fleet ../examples/vivarium/north-ridge.yaml \
+	  --broker tcp://$(MAC_IP):1883
+
+.PHONY: plan
 plan: ## Dry run — what would happen, without touching a cluster
 	cd controller && go run ./cmd/plan --dir ../examples/north-ridge
 
@@ -444,7 +454,7 @@ liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
 
-.PHONY: controller-gen plan plan-dir controller-build liveness-crd rbac
+.PHONY: controller-gen vivarium vivarium-real plan plan-dir controller-build liveness-crd rbac
 rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 	kubectl apply -f manifests/cloudcore-devicestatus-rbac.yaml
 	kubectl -n kubeedge rollout restart deploy/cloudcore

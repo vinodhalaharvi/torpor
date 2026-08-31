@@ -1,0 +1,118 @@
+# A fleet that fails the way real fleets fail.
+#
+# Every failure mode here has either been observed on real hardware in this
+# project or is a documented failure of the platforms this replaces. None is
+# invented for variety.
+#
+#   vivarium --fleet examples/vivarium/north-ridge.yaml
+
+seed: 20260831        # reproducible. a run you cannot replay is an anecdote
+speed: 120            # 2 hours of fleet life per minute of watching
+
+cohorts:
+  # The correlated failure that matters. Bad firmware does not fail 2% of
+  # devices at random — it fails every device on one hardware revision. That is
+  # the only case where stopping at the first failure is right, and therefore
+  # the only case that tests whether the canary works.
+  - name: hw-rev-b
+    firmwareFailsFor: ["v42"]
+    failureMode: bootLoop
+
+  # The failure this project actually hit: converged twin, clean broker round
+  # trip, happy kubectl, hardware doing nothing.
+  - name: dodgy-flash
+    firmwareFailsFor: ["v42"]
+    failureMode: reportsWithoutRunning
+
+gateways:
+  # Forty devices go silent in the same second. The right response is to look
+  # at one thing, not forty.
+  - name: gw-north
+    outageEvery: 6h
+    outageFor: 40m
+
+devices:
+  # Mains, always up. The uninteresting case, and most of a real fleet.
+  - name: gw-north
+    topicPrefix: gw-north
+    reportEvery: 60s
+    configHash: v41
+    battery: 100
+
+  # LoRa only. Permanently refused for firmware, forever.
+  - name: field-01
+    gateway: gw-north
+    nodeID: 2
+    reportEvery: 30m
+    configHash: v41
+    battery: 61
+    batteryDrainPerDay: 0.4
+    behaviour: {jitter: 0.15, packetLoss: 0.05}
+
+  # Two doors. WiFi for four minutes a day, when the truck passes.
+  - name: field-19
+    topicPrefix: field-19
+    gateway: gw-north
+    nodeID: 20
+    reportEvery: 30m
+    wifiUpFor: 4m
+    wifiEvery: 24h
+    configHash: v41
+    battery: 72
+    batteryDrainPerDay: 0.3
+    behaviour: {jitter: 0.2}
+
+  # Hardware revision B. Will take v42 and boot loop — along with every other
+  # rev-B device, at the same moment.
+  - name: field-07
+    topicPrefix: field-07
+    cohort: hw-rev-b
+    reportEvery: 5m
+    configHash: v41
+    battery: 88
+
+  - name: field-08
+    topicPrefix: field-08
+    cohort: hw-rev-b
+    reportEvery: 5m
+    configHash: v41
+    battery: 91
+
+  # Reports v42 without running it. Invisible from every vantage point except
+  # the vivarium's own ground truth.
+  - name: field-12
+    topicPrefix: field-12
+    cohort: dodgy-flash
+    reportEvery: 5m
+    configHash: v41
+    battery: 77
+
+  # Below the battery floor. Eligible on capability, refused on energy.
+  - name: field-41
+    topicPrefix: field-41
+    reportEvery: 5m
+    configHash: v41
+    battery: 18
+    batteryDrainPerDay: 1.5
+
+  # Flaky radio. Tests whether the controller distinguishes a device that is
+  # quiet from a device that is gone.
+  - name: field-33
+    gateway: gw-north
+    nodeID: 34
+    reportEvery: 30m
+    configHash: v41
+    battery: 8
+    batteryDrainPerDay: 2.0
+    behaviour: {packetLoss: 0.4, jitter: 0.5}
+
+  # Takes the firmware and never speaks again. The failure that costs a truck.
+  - name: field-55
+    topicPrefix: field-55
+    reportEvery: 5m
+    configHash: v41
+    battery: 64
+    behaviour:
+      onFirmware: bricks
+      firmwareDelay: 45s
+      failChance: 1.0

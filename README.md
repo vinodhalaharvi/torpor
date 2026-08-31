@@ -173,6 +173,38 @@ make bench            # four-pane workbench
 
 `make` alone prints grouped help.
 
+## A fleet without a fleet
+
+```bash
+make vivarium
+```
+
+Starts an embedded MQTT broker and a fleet of devices on it. They speak real
+MQTT on real topics — the mapper cannot tell them from boards.
+
+The unfair advantage is that it knows ground truth:
+
+```
+── ground truth
+  DEVICE      RUNNING   REPORTED  BATT  BOOTS  NOTE
+  field-07    v42       v42       88    5      boot looping
+  field-12    v41       v42       77    0      REPORTS A HASH IT IS NOT RUNNING
+  field-55    v41       v41       64    0      BRICKED
+```
+
+`field-12` is converged from every vantage point in the system — twin agrees,
+broker round trip clean, `kubectl` happy — and it is running the old firmware.
+That failure happened here on real hardware, and without ground truth there is
+no way to check whether the health gate would have caught it.
+
+Failures are correlated, which is the half that matters: a cohort on hardware
+revision B all boot-loop on the same image, and a gateway outage takes forty
+devices silent in the same second. Independent probability produces a fleet
+where a canary tells you nothing about the next device — which cannot test
+whether the canary works.
+
+See `examples/vivarium/README.md`.
+
 ## Try it without hardware
 
 ```bash
