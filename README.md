@@ -166,6 +166,8 @@ hack/         tmux workbench, first-push safety checks
 ```bash
 cp firmware/secrets.yaml.example firmware/secrets.yaml   # then edit it
 make check            # every hop in the chain, with a tick or a cross
+make sync             # apply models then devices, in the order that works
+make why              # when something is wrong, the three logs that say so
 make v0               # a temperature, via kubectl
 make v2               # the device with no address
 make bench            # four-pane workbench

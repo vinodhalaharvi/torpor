@@ -248,3 +248,30 @@ and fine.
 **Edgecore caches DeviceModels in SQLite.** Patching a model on the API server
 does not necessarily reach a mapper that already has a stale copy; restart
 edgecore first, then the mapper.
+
+---
+
+## Ordering, and why `make sync` exists
+
+Four things must happen in one order, and every wrong order fails while
+reporting something misleading:
+
+```
+1  DeviceModel      apply first
+2  edgecore         restart, so it caches the model before devices arrive
+3  Devices          delete then apply — an already-delivered Device is not resent
+4  mapper           restart last, so registration finds devices already present
+```
+
+| Wrong order | What it says | What it means |
+|---|---|---|
+| model missing | `device model X not found in cache` — on the **edge**, not the API server | the model failed to apply and nobody looked |
+| edgecore not restarted | nothing at all | devices rejected silently, mapper never hears of them |
+| mapper restarted early | registers, subscribes to nothing, forever | registration is in-memory and happened before delivery |
+| Device re-applied, not recreated | `unchanged` | never resent, so the mapper never sees the change |
+
+None of those name the actual problem. Chasing them cost most of a session, so
+the order lives in a Makefile target rather than in somebody's memory.
+
+`make why` prints the three logs that between them always contain the answer:
+the mapper's, edgecore's, and cloudcore's — filtered to the lines that matter.

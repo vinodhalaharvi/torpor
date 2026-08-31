@@ -288,10 +288,78 @@ converge: ## Devices whose reported state has not caught up to desired
 	  | .metadata.name' || true
 
 .PHONY: apply
-apply: ## Apply device manifests from ./manifests
+sync: ## Apply models, then devices, in the order that works — use this, not kubectl apply
+	@# Ordering is not a nicety here. Each step depends on the one before, and
+	@# every failure in this chain reports something misleading:
+	@#
+	@#   model missing        -> "device model X not found in cache", on the EDGE
+	@#   edgecore not restarted -> devices silently rejected, mapper says nothing
+	@#   mapper restarted early -> registers, then receives nothing, forever
+	@#
+	@# None of those name the actual problem, and chasing them cost most of a
+	@# session. So the order lives here rather than in somebody's memory.
+	@printf '\n\033[1m1/5  device models\033[0m\n'
+	@for f in $$(grep -l "kind: DeviceModel" manifests/*.yaml); do \
+	  kubectl apply -f $$f 2>&1 | sed 's/^/      /' || exit 1; \
+	done
+	@kubectl get devicemodels --no-headers | awk '{printf "      %s\n", $$1}'
+
+	@printf '\n\033[1m2/5  edgecore — so it caches the models before devices arrive\033[0m\n'
+	@limactl shell $(VM) -- sudo systemctl restart edgecore
+	@printf '      waiting for the tunnel'
+	@for i in $$(seq 1 15); do printf '.'; sleep 2; done; printf '\n'
+
+	@printf '\n\033[1m3/5  devices\033[0m\n'
+	@# Deleted first, deliberately. A Device already delivered is not resent,
+	@# so an apply over an existing one reaches nobody — which looks exactly
+	@# like the mapper ignoring it.
+	@for f in $$(grep -L "kind: DeviceModel" manifests/*.yaml | xargs grep -l "kind: Device" 2>/dev/null); do \
+	  kubectl delete -f $$f --ignore-not-found >/dev/null 2>&1; \
+	done
+	@sleep 5
+	@for f in $$(grep -L "kind: DeviceModel" manifests/*.yaml | xargs grep -l "kind: Device" 2>/dev/null); do \
+	  kubectl apply -f $$f 2>&1 | sed 's/^/      /'; \
+	done
+	@sleep 5
+
+	@printf '\n\033[1m4/5  mapper — after the devices, so registration finds them\033[0m\n'
+	@limactl shell $(VM) -- sudo systemctl restart esphome-mapper
+	@printf '      settling'
+	@for i in $$(seq 1 10); do printf '.'; sleep 2; done; printf '\n'
+
+	@printf '\n\033[1m5/5  check\033[0m\n'
+	@p=$$(limactl shell $(VM) -- sudo journalctl -u esphome-mapper --since "1 min ago" --no-pager 2>/dev/null | grep -c panic); \
+	  s=$$(limactl shell $(VM) -- sudo journalctl -u esphome-mapper --since "1 min ago" --no-pager 2>/dev/null | grep -c subscribed); \
+	  u=$$(limactl shell $(VM) -- sudo journalctl -u esphome-mapper --since "1 min ago" --no-pager 2>/dev/null | grep -c "not declared in DeviceModel"); \
+	  n=$$(kubectl get devices --no-headers 2>/dev/null | wc -l | tr -d ' '); \
+	  printf '      %-28s %s\n' "devices in the cluster" "$$n"; \
+	  printf '      %-28s %s\n' "mapper subscriptions" "$$s"; \
+	  [ "$$p" = 0 ] && printf '      $(OK) no panics\n' || printf '      $(BAD) %s panics — see make why\n' "$$p"; \
+	  [ "$$u" = 0 ] || printf '      $(WARN) %s properties not declared in their model — see make why\n' "$$u"; \
+	  [ "$$s" -ge "$$n" ] && printf '      $(OK) every device has a subscription\n\n' \
+	    || printf '      $(WARN) fewer subscriptions than devices — see make why\n\n'
+
+.PHONY: why
+why: ## What went wrong, from the one log that actually says
+	@printf '\n\033[1m── mapper, last 2 minutes ─────────────────────────────\033[0m\n'
+	@limactl shell $(VM) -- sudo journalctl -u esphome-mapper --since "2 min ago" --no-pager 2>/dev/null \
+	  | grep -iE "panic|not declared|unmarshal|connected to|subscribed" | tail -20 | sed 's/^/  /' \
+	  || printf '  nothing\n'
+	@printf '\n\033[1m── edgecore, last 2 minutes ───────────────────────────\033[0m\n'
+	@limactl shell $(VM) -- sudo journalctl -u edgecore --since "2 min ago" --no-pager 2>/dev/null \
+	  | grep -iE "not found in cache|failed|dmiworker" | tail -12 | sed 's/^/  /' \
+	  || printf '  nothing\n'
+	@printf '\n\033[1m── cloudcore, last 2 minutes ──────────────────────────\033[0m\n'
+	@kubectl -n kubeedge logs -l k8s-app=kubeedge --since=2m --tail=200 2>/dev/null \
+	  | grep -iE "forbidden|failed|error" | tail -8 | sed 's/^/  /' \
+	  || printf '  nothing\n'
+	@printf '\n'
+
+.PHONY: apply
+apply: ## Apply device manifests from ./manifests (prefer `make sync`)
 	kubectl apply -f manifests/
 
-.PHONY: v2
+.PHONY: sync why v2
 v2: ## The two-transport view — one device with an IP, one without
 	@printf '\n  %-10s %-14s %-10s %-9s %s\n' NAME MODEL TRANSPORT LAST-SEEN TEMPERATURE
 	@printf '  %-10s %-14s %-10s %-9s %s\n' ---------- -------------- ---------- --------- -----------
