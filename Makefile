@@ -317,6 +317,19 @@ liveness-run: ## Run the liveness controller locally against the cluster
 	cd controller && go run ./cmd/ --leader-elect=false
 
 .PHONY: liveness
+rollouts: ## Rollouts, with the three columns nothing else has
+	@kubectl get firmwarerollout -n $(NAMESPACE) 2>/dev/null || \
+	  printf '  $(WARN) no FirmwareRollout objects\n'
+
+.PHONY: refused
+refused: ## Why each device was refused or is pending — the planning result
+	@kubectl get firmwarerollout -n $(NAMESPACE) -o json 2>/dev/null | jq -r '
+	  .items[] | .metadata.name as $$r
+	  | ((.status.refused // [])[] | "\($$r)  REFUSED  \(.device)  \(.reason)  \(.detail)"),
+	    ((.status.pending // [])[] | "\($$r)  PENDING  \(.device)  \(.reason)  \(.detail)")' \
+	  | column -t -s'  ' || printf '  $(WARN) nothing to report\n'
+
+.PHONY: rollouts refused liveness
 liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'

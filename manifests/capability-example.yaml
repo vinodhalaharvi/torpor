@@ -1,0 +1,52 @@
+---
+# Capability, declared per transport.
+#
+# The field nothing else has. Every commercial platform stores one capability
+# per device because they assume IP, and IP is uniform. A node that is
+# LoRa-always and WiFi-occasionally has two different answers to "can you take
+# a firmware image", and which applies depends on where it is standing today.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: DeviceLiveness
+metadata:
+  name: field-01
+  namespace: default
+spec:
+  expectedInterval: 30s
+  staleMultiplier: 3
+status:
+  state: Sleeping
+  transport: lora
+  gateway: w10-a
+  silentFor: 47s
+  assessment: WithinExpectedWakeInterval
+
+  capability:
+    transports:
+      - type: lora
+        availability: always          # the radio is up whenever the node is
+        config: true                  # a few bytes fit through anything
+        ota: false                    # 1 MB at 1.7 kbps, inside a 1% duty
+                                      # cycle, is not slow — it is forbidden
+        throughputBps: 1760
+        maxPayloadBytes: 240
+        dutyCyclePercent: "1.0"
+
+      - type: wifi
+        availability: opportunistic   # up when a truck drives past. Not a
+                                      # failure mode — a steady state
+        config: true
+        ota: true
+        throughputBps: 10000000
+        otaCostMah: 34
+
+    # Observed, not declared. This is what makes capability time-varying
+    # rather than static, and it is why a rollout can be Pending on a device
+    # that is Online and fully capable.
+    reachableVia: [lora]
+
+    batteryPercent: 74
+    batteryMah: 890
+
+    # What the device says it is actually running, as opposed to what it was
+    # told to run. The health gate compares against this.
+    runningConfigHash: "43fdb47c"
