@@ -80,6 +80,21 @@ spec:
       expectedIntervalSeconds: 30
       staleMultiplier: 3
 
+      # Declared capability. The planner reads this and refuses a firmware
+      # rollout before transmitting anything.
+      #
+      # ota: false is not "unimplemented". A 1 MB image at 1.7 kbps is about
+      # 80 minutes of continuous airtime, inside a duty cycle that permits
+      # roughly 36 seconds per hour. The arithmetic does not terminate, and no
+      # amount of waiting changes that — which is why the answer is Refused
+      # rather than Pending.
+      transports:
+        - type: lora
+          availability: always
+          config: true
+          ota: false
+          maxPayloadBytes: 240
+
   properties:
     # Visitor topics are bare field names, not topic paths. There is no
     # hierarchy to address: the frame is the entire namespace.

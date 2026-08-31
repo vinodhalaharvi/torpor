@@ -45,14 +45,14 @@ Four states where Kubernetes has two. `Sleeping` is healthy and quiet;
 checking in daily are both healthy at wildly different rates — which a single
 cluster-wide timeout cannot express.
 
-### DeviceCapability — types built, not yet populated
+### DeviceCapability — built
 
 Per-transport, and time-varying. `config: true, ota: false` is not a missing
 feature; it is a permanent fact about 1.7 kbps inside a 1% duty cycle.
 `reachableVia` is observed rather than declared, which is what makes a device
 Pending while Online and fully capable.
 
-### FirmwareRollout — types and planner built, controller not
+### FirmwareRollout — built, untested on hardware
 
 Deployment ergonomics, different semantics. The planner sorts a fleet into
 three lists before transmitting anything:
@@ -93,3 +93,34 @@ structure is evidence the structure is real.
 The accurate claim is therefore narrower than "nobody models this." It is that
 no open, transport-agnostic platform models it, and the closed stack that does
 confines it to one protocol.
+
+---
+
+## The transport table, and why it is code
+
+`controller/internal/transports.go` is `docs/protocol-matrix.md` made
+executable. The matrix was written from datasheets and airtime arithmetic
+before any of this existed; encoding it means the planner refuses for the same
+reason a human would, and the reason is auditable rather than folklore.
+
+The entry that matters:
+
+```go
+"lora": {
+    Config:           true,
+    OTA:              false,   // permanent, not unimplemented
+    ThroughputBps:    1_760,
+    DutyCyclePercent: "1.0",
+}
+```
+
+`ota: false` is arithmetic, not a gap. A 1 MB image at 1.7 kbps is roughly 80
+minutes of continuous airtime, inside a duty cycle permitting about 36 seconds
+per hour. No amount of waiting changes that, which is why the planner answers
+**Refused** rather than **Pending** — and why the distinction between those two
+words is the product rather than a nicety.
+
+Every entry is a default. A Device can override any of it, because a real
+deployment knows things a table cannot: a Thread node with a mains-powered
+parent, a LoRa link at SF7 rather than SF9, a gateway with a better antenna.
+The table is what to assume when nobody has said otherwise.
