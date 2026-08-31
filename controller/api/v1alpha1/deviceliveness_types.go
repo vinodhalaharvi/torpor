@@ -118,6 +118,15 @@ type DeviceLivenessStatus struct {
 	// +optional
 	Capability *DeviceCapability `json:"capability,omitempty"`
 
+	// ContactWindows is when this device has actually been reachable, per
+	// transport, learned rather than declared.
+	//
+	// Nobody types this. It accumulates, and it is the difference between
+	// "this node is unreachable" and "this node is unreachable and has been
+	// every day at this hour for three weeks, so nothing is wrong".
+	// +optional
+	ContactWindows []ContactWindow `json:"contactWindows,omitempty"`
+
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
