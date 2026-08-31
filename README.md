@@ -173,6 +173,12 @@ make bench            # four-pane workbench
 
 `make` alone prints grouped help.
 
+## See it all at once
+
+`docs/walkthrough.md` — every object, told as one fleet: forty-seven sensors at
+a water utility, three pump houses, most on LoRa. Each object exists because the
+one before it left a question unanswered.
+
 ## How the objects compose
 
 Nothing references anything by name. A `MaintenanceWindow` does not know which
