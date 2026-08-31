@@ -91,6 +91,9 @@ check: ## Full preflight — every hop in the chain
 	@printf '    apiserver     '; kubectl cluster-info >/dev/null 2>&1 && printf '$(OK)\n' || printf '$(BAD) unreachable\n'
 	@printf '    cloudcore     '; kubectl -n kubeedge get pod -l k8s-app=kubeedge -o jsonpath='{.items[0].status.phase}' 2>/dev/null | grep -q Running && printf '$(OK)\n' || printf '$(BAD) not Running\n'
 	@printf '    CRDs          '; kubectl get crd devices.devices.kubeedge.io >/dev/null 2>&1 && printf '$(OK)\n' || printf '$(BAD) device CRDs missing\n'
+	@printf '    cc strategy   '; kubectl -n kubeedge get deploy cloudcore -o jsonpath='{.spec.strategy.type}' 2>/dev/null | grep -q Recreate && printf '$(OK) Recreate\n' || printf '$(BAD) RollingUpdate — cannot roll, run make cloudcore-strategy\n'
+	@printf '    cc rollout    '; p=$$(kubectl -n kubeedge get pods -l k8s-app=kubeedge --field-selector=status.phase=Pending --no-headers 2>/dev/null | wc -l | tr -d ' '); \
+	  [ "$$p" = 0 ] && printf '$(OK) complete\n' || printf '$(BAD) %s pod(s) Pending — device delivery is stalled\n' "$$p"
 	@printf '\n  \033[1mEdge\033[0m\n'
 	@printf '    vm            '; limactl list $(VM) --format '{{.Status}}' 2>/dev/null | grep -q Running && printf '$(OK)\n' || printf '$(BAD) not running\n'
 	@printf '    edgecore      '; limactl shell $(VM) -- systemctl is-active edgecore 2>/dev/null | grep -q '^active' && printf '$(OK)\n' || printf '$(BAD) inactive\n'
@@ -540,10 +543,30 @@ liveness: ## The row Kubernetes cannot produce
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
 
 .PHONY: controller-gen verify verify-vivarium vivarium vivarium-real plan plan-dir controller-build liveness-crd rbac
-rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
+rbac: cloudcore-strategy ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 	kubectl apply -f manifests/cloudcore-devicestatus-rbac.yaml
 	kubectl -n kubeedge rollout restart deploy/cloudcore
 	kubectl -n kubeedge rollout status deploy/cloudcore
+
+.PHONY: cloudcore-strategy
+cloudcore-strategy: ## Make cloudcore recreatable — it cannot roll (hostNetwork ports)
+	@kubectl -n kubeedge get deploy cloudcore -o jsonpath='{.spec.strategy.type}' 2>/dev/null \
+	  | grep -q Recreate || { \
+	    printf '  patching cloudcore to strategy: Recreate\n'; \
+	    kubectl apply -f manifests/cloudcore-recreate-strategy.yaml; }
+	@# Clear any ReplicaSet already wedged by a rolling restart. A pod Pending
+	@# behind a hostNetwork port conflict never schedules and never gives up,
+	@# and while it exists the Deployment never completes — which stops the
+	@# device controller reconciling without producing a single error anywhere.
+	@stuck=$$(kubectl -n kubeedge get pods -l k8s-app=kubeedge \
+	  --field-selector=status.phase=Pending -o name 2>/dev/null); \
+	  if [ -n "$$stuck" ]; then \
+	    printf '  $(WARN) clearing wedged pod: %s\n' "$$stuck"; \
+	    kubectl -n kubeedge delete $$stuck --force --grace-period=0 >/dev/null 2>&1; \
+	  fi
+	@kubectl -n kubeedge get deploy cloudcore \
+	  -o custom-columns=NAME:.metadata.name,STRATEGY:.spec.strategy.type,READY:.status.readyReplicas --no-headers \
+	  | sed 's/^/  /'
 
 .PHONY: set
 tone: ## Play a tone on the board via kubectl — the V1 demo

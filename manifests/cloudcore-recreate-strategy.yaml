@@ -1,0 +1,43 @@
+---
+# CloudCore cannot roll. It must be recreated.
+#
+# The chart from `keadm init` ships the default RollingUpdate strategy, and
+# cloudcore runs with hostNetwork bound to ports 10000 and 10002. Rolling means
+# starting the new pod before terminating the old one, and the new pod can
+# never bind those ports while the old pod holds them. So it sits Pending,
+# forever, and the Deployment sits mid-rollout.
+#
+# The failure is quiet and it is not local. Nothing about cloudcore reports an
+# error — one pod is Running and healthy. But the Deployment never completes,
+# the device controller never finishes reconciling, and every Device created
+# after the stall is simply never delivered to any edge node.
+#
+# From the edge, that is invisible. EdgeCore polls for its device membership
+# once a minute, receives a list built before the stall, and logs nothing
+# unusual because nothing unusual happened to it. The mapper subscribes to
+# exactly the devices it was told about. Every log in the chain is clean.
+#
+# Diagnosing this from the bottom took most of a session. The tell is a second
+# cloudcore ReplicaSet with a pod Pending for hours, which looks like harmless
+# debris and is the cause.
+#
+# `kubectl rollout restart deploy/cloudcore` triggers it every time — which is
+# what `make rbac` did.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudcore
+  namespace: kubeedge
+spec:
+  strategy:
+    # No maxSurge, no maxUnavailable — those fields are invalid here and the
+    # apiserver rejects them alongside Recreate.
+    type: Recreate
+
+# Applied separately from the chart rather than edited into it, for the same
+# reason the DeviceStatus RBAC is additive: `keadm init` is a Helm install, and
+# a helm upgrade would silently revert an edit to the chart's own resources.
+#
+# Recreate means a few seconds of tunnel downtime on every restart. That is the
+# correct trade: edge nodes reconnect on their own, and a brief gap is better
+# than a Deployment that never completes and takes device delivery with it.
