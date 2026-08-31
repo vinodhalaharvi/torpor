@@ -1,0 +1,76 @@
+---
+# Two hundred devices that are the same except where they are not.
+#
+# Kustomize and Helm solve this for pods and neither fits. A pod's variation is
+# environmental — image tag, replica count — and lives in a values file next to
+# the chart. A device's variation is physical: this sensor sits in the north
+# pump house and reads three degrees high, and that fact belongs with the
+# device rather than with the template.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: DeviceTemplate
+metadata:
+  name: north-ridge-sensors
+  namespace: default
+spec:
+  deviceModelRef: lora-sensor
+
+  # Stamped onto every generated Device. This is why templating and FleetQuery
+  # belong together — a selector over `role: field-sensor` means something only
+  # because something put that label on two hundred devices consistently.
+  labels:
+    role: field-sensor
+    site: north-ridge
+    transport: lora
+
+  protocol:
+    name: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      gateway: "{{ .gateway }}"
+      nodeID: "{{ .nodeID }}"
+      expectedIntervalSeconds: "30"
+
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors: {dataType: float, topic: temperature}
+
+    - name: humidity
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors: {dataType: float, topic: humidity}
+
+    # Fleet-wide default, overridable per device below. Expressing the two
+    # exceptions as exceptions rather than as a second template keeps them
+    # visible.
+    - name: sample_interval
+      collectCycle: 30000
+      reportToCloud: true
+      desired: "300"
+      visitors:
+        dataType: string
+        topic: text/sample_interval/state
+        commandTopic: text/sample_interval/command
+
+  instances:
+    - name: field-01
+      vars: {gateway: w10-a, nodeID: "2"}
+      labels: {pumphouse: north}
+
+    - name: field-02
+      vars: {gateway: w10-a, nodeID: "3"}
+      # A regulator watches this one, so it samples five times as often.
+      overrides:
+        sample_interval: "60"
+
+    - name: field-03
+      vars: {gateway: w10-a, nodeID: "4"}
+      labels: {pumphouse: south}
+
+  # Default. A device disappearing from this list is more likely a bad edit
+  # than a decommissioning, and DeviceDecommission exists so the real thing
+  # never happens by accident.
+  prune: false
