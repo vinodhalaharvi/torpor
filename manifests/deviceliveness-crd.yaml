@@ -131,10 +131,10 @@ rules:
     resources: [devices]
     verbs: [get, list, watch, update, patch]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries, maintenancewindows, fleetqueries, devicetemplates, devicedecommissions]
+    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries, maintenancewindows, fleetqueries, devicetemplates, devicedecommissions, deviceenrollments]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status, maintenancewindows/status, fleetqueries/status, devicetemplates/status, devicedecommissions/status]
+    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status, maintenancewindows/status, fleetqueries/status, devicetemplates/status, devicedecommissions/status, deviceenrollments/status]
     verbs: [get, update, patch]
   - apiGroups: [""]
     resources: [events]
@@ -590,4 +590,55 @@ spec:
                     "This site has had four sensors in three years" is a fact
                     about the site, and a chain of replacements is the only way
                     to see it.
+            status: {type: object, x-kubernetes-preserve-unknown-fields: true}
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: deviceenrollments.fleet.torpor.io
+spec:
+  group: fleet.torpor.io
+  scope: Namespaced
+  names: {kind: DeviceEnrollment, listKind: DeviceEnrollmentList, plural: deviceenrollments, singular: deviceenrollment, shortNames: [enroll]}
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Enrolled, type: integer, jsonPath: .status.enrolled}
+        - {name: Pending,  type: integer, jsonPath: .status.pendingCount}
+        - {name: Rejected, type: integer, jsonPath: .status.rejectedCount}
+        - {name: Auto,     type: boolean, jsonPath: .spec.autoApprove, priority: 1}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                announceTopic: {type: string}
+                broker: {type: string}
+                nodeName: {type: string}
+                autoApprove:
+                  type: boolean
+                  description: >
+                    Default false and it should stay false anywhere that
+                    matters. An announcement is a claim from an unauthenticated
+                    source; auto-approving lets anybody who can reach the
+                    broker add devices to your fleet and have your rollouts
+                    push firmware at them.
+                requireTemplate:
+                  type: string
+                  description: >
+                    Only approve devices named as instances of this template.
+                    You already wrote down which devices you ordered.
+                allowedModels: {type: array, items: {type: string}}
+                labels: {type: object, additionalProperties: {type: string}}
+                expirePendingAfter:
+                  type: string
+                  description: >
+                    A pending list nobody has cleared is a pending list nobody
+                    reads.
             status: {type: object, x-kubernetes-preserve-unknown-fields: true}
