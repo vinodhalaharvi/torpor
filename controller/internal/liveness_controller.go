@@ -160,6 +160,8 @@ func (r *LivenessReconciler) assess(
 		out.Gateway = gw
 	}
 
+	out.Capability = r.deriveCapability(ctx, key, dev)
+
 	last, ok := r.lastReport(ctx, key, live.Spec.Property)
 	if !ok {
 		out.State = fleetv1.StateUnknown
@@ -236,6 +238,142 @@ func (r *LivenessReconciler) lastReport(
 		}
 	}
 	return newest, !newest.IsZero()
+}
+
+// deriveCapability works out what a device can do, from three sources in
+// descending order of authority.
+//
+//  1. An explicit `transports` block in the Device's protocol config. A human
+//     said so, and a human knows things a table does not.
+//  2. The transport implied by how the device is reached — a gateway means
+//     LoRa, an IP means WiFi. Inferred, but reliably.
+//  3. The defaults table, which is docs/protocol-matrix.md executable.
+//
+// Deliberately derived rather than probed. Probing means attempting, and
+// attempting is precisely what this model exists to avoid — the whole argument
+// is that you should know a LoRa node cannot take a megabyte without spending
+// six hours discovering it.
+func (r *LivenessReconciler) deriveCapability(
+	ctx context.Context, key types.NamespacedName, dev *unstructured.Unstructured,
+) *fleetv1.DeviceCapability {
+	cap := &fleetv1.DeviceCapability{}
+	cfg, _, _ := unstructured.NestedMap(dev.Object, "spec", "protocol", "configData")
+
+	// 1. Explicit declaration wins.
+	if raw, found, _ := unstructured.NestedSlice(cfg, "transports"); found {
+		for _, item := range raw {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _, _ := unstructured.NestedString(m, "type")
+			t := defaultTransport(name)
+			if v, ok := m["ota"].(bool); ok {
+				t.OTA = v
+			}
+			if v, ok := m["config"].(bool); ok {
+				t.Config = v
+			}
+			if v, ok := m["availability"].(string); ok && v != "" {
+				t.Availability = v
+			}
+			if v, err := toInt64(m["otaCostMah"]); err == nil && v > 0 {
+				t.OTACostMah = int32(v)
+			}
+			if v, err := toInt64(m["maxPayloadBytes"]); err == nil && v > 0 {
+				t.MaxPayloadBytes = v
+			}
+			cap.Transports = append(cap.Transports, t)
+		}
+	}
+
+	// 2. Infer from how the device is addressed.
+	if len(cap.Transports) == 0 {
+		if _, hasGateway := cfg["gateway"]; hasGateway {
+			// No address of its own, reached through something else. That is
+			// the definition of the LoRa case in this project.
+			cap.Transports = append(cap.Transports, defaultTransport("lora"))
+		} else {
+			name := dev.GetLabels()["transport"]
+			if name == "" {
+				name = "wifi"
+			}
+			cap.Transports = append(cap.Transports, defaultTransport(name))
+		}
+	}
+
+	// 3. What is up RIGHT NOW, as opposed to what exists.
+	//
+	// This is the field that makes capability time-varying. A node with both
+	// LoRa and WiFi declared is only OTA-eligible while WiFi is actually
+	// reachable, which is why a rollout can be Pending on a device that is
+	// Online and fully capable.
+	for _, t := range cap.Transports {
+		if t.Availability == "always" {
+			cap.ReachableVia = append(cap.ReachableVia, t.Type)
+		}
+	}
+	if v := r.reportedProperty(ctx, key, "ip_address"); v != "" && v != "0.0.0.0" {
+		if !contains(cap.ReachableVia, "wifi") && hasTransport(cap, "wifi") {
+			cap.ReachableVia = append(cap.ReachableVia, "wifi")
+		}
+	}
+
+	// 4. What it says it is running, which the health gate compares against.
+	cap.RunningConfigHash = r.reportedProperty(ctx, key, "running_config_hash")
+
+	if v := r.reportedProperty(ctx, key, "battery_percent"); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
+			cap.BatteryPercent = int32(n)
+		}
+	}
+	if v := r.reportedProperty(ctx, key, "battery_mah"); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
+			cap.BatteryMah = int32(n)
+		}
+	}
+	return cap
+}
+
+// reportedProperty reads one twin value off the DeviceStatus.
+func (r *LivenessReconciler) reportedProperty(
+	ctx context.Context, key types.NamespacedName, name string,
+) string {
+	ds := &unstructured.Unstructured{}
+	ds.SetGroupVersionKind(deviceStatusGVK)
+	if err := r.Get(ctx, key, ds); err != nil {
+		return ""
+	}
+	twins, _, _ := unstructured.NestedSlice(ds.Object, "status", "twins")
+	for _, t := range twins {
+		tw, ok := t.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if n, _, _ := unstructured.NestedString(tw, "propertyName"); n == name {
+			v, _, _ := unstructured.NestedString(tw, "reported", "value")
+			return v
+		}
+	}
+	return ""
+}
+
+func hasTransport(c *fleetv1.DeviceCapability, name string) bool {
+	for _, t := range c.Transports {
+		if t.Type == name {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func toInt64(v interface{}) (int64, error) {
