@@ -309,6 +309,19 @@ v2: ## The two-transport view — one device with an IP, one without
 	done; printf '\n'
 
 .PHONY: rbac
+liveness-crd: ## Install the DeviceLiveness CRD and its RBAC
+	kubectl apply -f manifests/deviceliveness-crd.yaml
+
+.PHONY: liveness-run
+liveness-run: ## Run the liveness controller locally against the cluster
+	cd controller && go run ./cmd/ --leader-elect=false
+
+.PHONY: liveness
+liveness: ## The row Kubernetes cannot produce
+	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
+	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
+
+.PHONY: liveness-crd rbac
 rbac: ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 	kubectl apply -f manifests/cloudcore-devicestatus-rbac.yaml
 	kubectl -n kubeedge rollout restart deploy/cloudcore

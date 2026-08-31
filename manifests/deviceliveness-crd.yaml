@@ -1,0 +1,151 @@
+---
+# The first API this project owns rather than inherits.
+#
+# Everything below this is KubeEdge's Device and DeviceStatus with a mapper
+# underneath. This is the layer above — state that KubeEdge has no vocabulary
+# for, because its model assumes a device is either reachable or it is not.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: devicelivenesses.fleet.torpor.io
+spec:
+  group: fleet.torpor.io
+  scope: Namespaced
+  names:
+    kind: DeviceLiveness
+    listKind: DeviceLivenessList
+    plural: devicelivenesses
+    singular: deviceliveness
+    shortNames: [liveness, dl]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Transport
+          type: string
+          jsonPath: .status.transport
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: Silent
+          type: string
+          jsonPath: .status.silentFor
+        - name: Assessment
+          type: string
+          jsonPath: .status.assessment
+        - name: Gateway
+          type: string
+          jsonPath: .status.gateway
+          priority: 1
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                deviceRef:
+                  type: string
+                  description: Device this tracks. Defaults to the object's own name.
+                expectedInterval:
+                  type: string
+                  description: >
+                    How often this device is expected to report, e.g. "30s" or
+                    "24h". Silence shorter than this is Online, longer is
+                    Sleeping. Per-device, because a mains gateway and a battery
+                    node checking in daily are both healthy at wildly different
+                    rates — which a single cluster-wide timeout cannot express.
+                staleMultiplier:
+                  type: integer
+                  description: >
+                    Silence beyond expectedInterval x this is Unreachable.
+                    A judgement call rather than a fact, which is why it is
+                    configurable and why 3 is only a default.
+                property:
+                  type: string
+                  description: >
+                    Which reported property to measure freshness from.
+                    Defaults to the freshest of any.
+            status:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum: [Online, Sleeping, Unreachable, Unknown]
+                  description: >
+                    Sleeping is a healthy steady state, not a degraded one.
+                    Unreachable is a statement about our knowledge, not about
+                    the hardware — a node under snow is Unreachable and
+                    undamaged.
+                transport:
+                  type: string
+                  description: >
+                    State is only interpretable against this. 47 seconds of
+                    silence is alarming over WiFi and unremarkable over LoRa.
+                gateway:
+                  type: string
+                lastSeen:
+                  type: string
+                  format: date-time
+                silentFor:
+                  type: string
+                nextExpectedBy:
+                  type: string
+                  format: date-time
+                assessment:
+                  type: string
+                  description: >
+                    Why the state is what it is, in a form a human can read
+                    without knowing the thresholds. "Sleeping" alone invites
+                    the question every alerting system gets wrong — is that bad?
+                observedGeneration:
+                  type: integer
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: torpor-liveness
+  namespace: kubeedge
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: torpor:liveness
+rules:
+  # Read the Device for its labels and protocol config, and DeviceStatus for
+  # the twin timestamps. Read-only: this controller derives an opinion, it does
+  # not touch device state.
+  - apiGroups: ["devices.kubeedge.io"]
+    resources: [devices, devicestatuses]
+    verbs: [get, list, watch]
+  - apiGroups: ["fleet.torpor.io"]
+    resources: [devicelivenesses]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ["fleet.torpor.io"]
+    resources: [devicelivenesses/status]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: torpor:liveness
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: torpor:liveness
+subjects:
+  - kind: ServiceAccount
+    name: torpor-liveness
+    namespace: kubeedge
