@@ -44,6 +44,16 @@ substitutions:
   node_id: "1"          # 1 or 2 — must differ between the two boards
   node_label: "A"
 
+  # What this build IS, reported back so a rollout can tell whether an update
+  # actually took. Bump it when the config changes; the rollout's
+  # source.configHash is compared against what the device reports here.
+  #
+  # It has to describe the running firmware, not echo an instruction. A device
+  # that reports the hash it was handed proves nothing — that failure has
+  # already happened in this project, with a converged twin and hardware that
+  # did nothing.
+  firmware_hash: "43fdb47c"
+
 esphome:
   name: ${node_name}
   friendly_name: W10 ${node_label}
@@ -82,8 +92,24 @@ captive_portal:
 api:
   reboot_timeout: 0s
 
+# Two OTA paths, and the difference is the whole point.
+#
+# esphome: PUSH. `esphome run` from a laptop, one device at a time, with a
+#   human present. Fine for development, useless for a fleet — it needs the
+#   controller to reach every device at once, and half of them are asleep.
+#
+# http_request: PULL. The device fetches the image itself when told to, which
+#   means the instruction is a few bytes of desired state and can queue for a
+#   node that is not currently listening. That inversion is what makes a fleet
+#   update possible at all.
 ota:
   - platform: esphome
+  - platform: http_request
+    id: ota_http
+
+http_request:
+  verify_ssl: false
+  timeout: 10min          # 1 MB over WiFi is seconds; leave room for worse
 web_server:
   port: 80
 
@@ -416,6 +442,50 @@ text:
   # topic the mapper published on. Both topics are derived here, so they cannot
   # disagree.
   # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # firmware_url — a firmware update as an ordinary property write.
+  #
+  # The rollout controller sets desired state to "<hash>|<url>". The device
+  # pulls, flashes, reboots, and reports its new firmware_hash. Same mechanism
+  # as every other property here; only the value is unusual.
+  #
+  # Deduplicated at the device for the same reason tone_trigger is: the mapper
+  # writes desired state on every collect cycle, not on change. Without the
+  # guard this would re-flash every ten seconds, which is considerably worse
+  # than replaying a tone.
+  # ---------------------------------------------------------------------------
+  - platform: template
+    name: "Firmware URL"
+    id: firmware_url
+    mode: text
+    min_length: 0
+    max_length: 255
+    initial_value: ""
+    set_action:
+      - lambda: |-
+          static std::string last_cmd = "";
+          id(firmware_url).publish_state(x);
+          if (x.empty() || x == last_cmd) return;
+          last_cmd = x;
+
+          // "<hash>|<url>". Refuse to flash if the hash matches what is
+          // already running — the rollout is converged and re-flashing a
+          // device that is already correct is pure risk.
+          size_t bar = x.find('|');
+          if (bar == std::string::npos) {
+            ESP_LOGW("ota", "malformed firmware_url, want <hash>|<url>");
+            return;
+          }
+          std::string want = x.substr(0, bar);
+          std::string url  = x.substr(bar + 1);
+          if (want == "${firmware_hash}") {
+            ESP_LOGI("ota", "already running %s, nothing to do", want.c_str());
+            return;
+          }
+          ESP_LOGI("ota", "flashing %s from %s", want.c_str(), url.c_str());
+          id(ota_http)->set_md5_url("");
+          id(ota_http)->flash(url);
+
   - platform: template
     name: "Tone Trigger"
     id: tone_trigger
@@ -727,6 +797,16 @@ sensor:
     update_interval: 10s
     state_topic: ${node_name}/sensor/link_rssi/state
 
+  # Boot count, for detecting a boot loop after an update. A device that boots,
+  # reports healthy, and then boot-loops would pass a single check taken
+  # immediately after flashing — which is what the rollout's settleFor and this
+  # counter exist to catch between them.
+  - platform: uptime
+    name: "Uptime"
+    id: dev_uptime
+    update_interval: 30s
+    state_topic: ${node_name}/sensor/uptime/state
+
   - platform: wifi_signal
     name: "WiFi Signal"
     update_interval: 60s
@@ -751,6 +831,16 @@ binary_sensor:
           data: !lambda 'return std::vector<uint8_t>{0x04, (uint8_t) ${node_id}};'
 
 text_sensor:
+  # What this device is ACTUALLY running. The rollout's health gate compares
+  # against this rather than against what it was told, because the two are
+  # different claims and only one of them is evidence.
+  - platform: template
+    name: "Running Config Hash"
+    id: running_config_hash
+    lambda: 'return {"${firmware_hash}"};'
+    update_interval: 60s
+    state_topic: ${node_name}/text_sensor/running_config_hash/state
+
   - platform: wifi_info
     ip_address:
       name: "IP Address"
