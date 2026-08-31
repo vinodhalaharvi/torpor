@@ -131,10 +131,10 @@ rules:
     resources: [devices]
     verbs: [get, list, watch, update, patch]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries, maintenancewindows, fleetqueries, devicetemplates]
+    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries, maintenancewindows, fleetqueries, devicetemplates, devicedecommissions]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status, maintenancewindows/status, fleetqueries/status, devicetemplates/status]
+    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status, maintenancewindows/status, fleetqueries/status, devicetemplates/status, devicedecommissions/status]
     verbs: [get, update, patch]
   - apiGroups: [""]
     resources: [events]
@@ -527,4 +527,67 @@ spec:
                           Calibration offsets live here. An offset is a
                           measured property of one physical object, discovered
                           after deployment, and it belongs next to that object.
+            status: {type: object, x-kubernetes-preserve-unknown-fields: true}
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: devicedecommissions.fleet.torpor.io
+spec:
+  group: fleet.torpor.io
+  scope: Namespaced
+  names: {kind: DeviceDecommission, listKind: DeviceDecommissionList, plural: devicedecommissions, singular: devicedecommission, shortNames: [decom]}
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Device,       type: string, jsonPath: .spec.deviceRef}
+        - {name: Reason,       type: string, jsonPath: .spec.reason}
+        - {name: Phase,        type: string, jsonPath: .status.phase}
+        - {name: Service-Life, type: string, jsonPath: .status.serviceLife}
+        - {name: Replacement,  type: string, jsonPath: .spec.replacement, priority: 1}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [deviceRef, reason]
+              properties:
+                deviceRef: {type: string}
+                reason:
+                  type: string
+                  enum: [Stolen, Failed, BatteryExpired, Retired, Replaced, Transferred, NeverDeployed]
+                  description: >
+                    Required. There is no sensible default, and a decommission
+                    without one is a mystery six months later when somebody
+                    asks why the site has four sensors instead of five.
+                detail: {type: string}
+                effectiveFrom:
+                  type: string
+                  format: date-time
+                  description: >
+                    Backdates it. The paperwork always lags the event — a
+                    device stolen on Tuesday and noticed on Friday should not
+                    leave three days of unexplained unreachability in the
+                    history.
+                revokeCredentials:
+                  type: boolean
+                  description: >
+                    Default true. A device removed for theft that keeps working
+                    credentials is a security problem, not a bookkeeping one.
+                deleteDeviceObject:
+                  type: boolean
+                  description: >
+                    Default FALSE, and that is the point of this object: the
+                    device stops counting without ceasing to have existed.
+                replacement:
+                  type: string
+                  description: >
+                    "This site has had four sensors in three years" is a fact
+                    about the site, and a chain of replacements is the only way
+                    to see it.
             status: {type: object, x-kubernetes-preserve-unknown-fields: true}
