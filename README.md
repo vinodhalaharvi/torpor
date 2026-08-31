@@ -173,6 +173,32 @@ make bench            # four-pane workbench
 
 `make` alone prints grouped help.
 
+## How the objects compose
+
+Nothing references anything by name. A `MaintenanceWindow` does not know which
+rollouts it governs; a `FirmwareRollout` does not know a window exists. They
+meet through labels on the Device.
+
+That matters organisationally: the person who decides it is unsafe to touch a
+pump during the day shift is not the person shipping v42, and neither should
+have to read the other's YAML.
+
+The decision chain, and the order determines what an operator is told:
+
+```
+1. Capability   can this device EVER take this?    -> Refused   permanent
+2. Window       are we permitted right now?         -> Blocked   policy
+3. Liveness     is it reachable?                    -> Pending   temporary
+4. Contact      will contact last long enough?      -> Pending   arithmetic
+5. Transport    which door — rechecked at write time
+```
+
+Window before liveness, because a device that is awake during a change freeze
+is still off limits — reporting that as "pending, device asleep" sends somebody
+to debug a radio when the answer is "frozen until January".
+
+See `docs/composition.md`.
+
 ## Where it goes next
 
 `docs/next.md`, ordered by cost against what it settles. The top of that list is

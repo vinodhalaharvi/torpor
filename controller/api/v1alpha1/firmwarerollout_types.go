@@ -173,6 +173,15 @@ const (
 	// rollout may sit here for days and be entirely on track.
 	PhaseWaiting RolloutPhase = "Waiting"
 
+	// PhaseBlocked: we are not permitted to act, by policy rather than by
+	// circumstance.
+	//
+	// Distinct from Waiting on purpose. Waiting means the devices are not
+	// available; Blocked means they are available and we have been told not to
+	// touch them. Reporting a change freeze as "waiting for devices" sends
+	// somebody to debug a radio for an afternoon.
+	PhaseBlocked RolloutPhase = "Blocked"
+
 	PhaseComplete   RolloutPhase = "Complete"
 	PhaseRolledBack RolloutPhase = "RolledBack"
 )
@@ -219,6 +228,26 @@ type FirmwareRolloutStatus struct {
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 	// +optional
 	PreviousConfigHash string `json:"previousConfigHash,omitempty"`
+
+	// BlockedBy names the MaintenanceWindow currently withholding permission,
+	// and NextWindow is when it opens.
+	//
+	// Both exist so that "why is nothing happening" is answerable from the
+	// rollout object rather than by going and reading somebody else's policy.
+	// +optional
+	BlockedBy string `json:"blockedBy,omitempty"`
+	// +optional
+	BlockReason string `json:"blockReason,omitempty"`
+	// +optional
+	NextWindow *metav1.Time `json:"nextWindow,omitempty"`
+
+	// DispatchedThisWindow counts against MaxDevicesPerWindow. Reset when a
+	// window reopens, because the limit is a blast radius per opportunity to
+	// notice, not a total.
+	// +optional
+	DispatchedThisWindow int32 `json:"dispatchedThisWindow,omitempty"`
+	// +optional
+	WindowOpenedAt *metav1.Time `json:"windowOpenedAt,omitempty"`
 }
 
 // DeviceOutcome records what happened to one device and, more usefully, why.
