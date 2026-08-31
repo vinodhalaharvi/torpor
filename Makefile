@@ -354,6 +354,20 @@ capability: ## What each device can do, per transport
 	@printf '\n'
 
 .PHONY: refused
+windows: ## Maintenance windows — open, and if not, when
+	@kubectl get maintenancewindow -n $(NAMESPACE) 2>/dev/null || \
+	  printf '  $(WARN) no MaintenanceWindow objects\n'
+
+.PHONY: contact
+contact: ## When each device tends to be reachable, learned not declared
+	@kubectl get liveness -n $(NAMESPACE) -o json 2>/dev/null | jq -r '
+	  .items[] | .metadata.name as $$d
+	  | (.status.contactWindows // [])[]
+	  | "\($$d)\t\(.transport)\t\(.typicalInterval // "-")\t\(.confidence)\t\(.samplesObserved)"' \
+	  | awk -F'\t' 'BEGIN{printf "\n  %-12s %-9s %-10s %-10s %s\n", "DEVICE","TRANSPORT","INTERVAL","CONFIDENCE","SAMPLES"} {printf "  %-12s %-9s %-10s %-10s %s\n",$$1,$$2,$$3,$$4,$$5} END{print ""}' \
+	  || printf '  $(WARN) nothing learned yet\n'
+
+.PHONY: drift
 drift: ## Is the fleet still running what it should be?
 	@kubectl get fleetdrift -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no FleetDrift objects\n'
@@ -375,7 +389,7 @@ refused: ## Why each device was refused or is pending — the planning result
 	    ((.status.pending // [])[] | "\($$r)  PENDING  \(.device)  \(.reason)  \(.detail)")' \
 	  | column -t -s'  ' || printf '  $(WARN) nothing to report\n'
 
-.PHONY: serve-fw rollout-demo rollouts capability drift expiry refused liveness
+.PHONY: serve-fw rollout-demo rollouts capability windows contact drift expiry refused liveness
 liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'

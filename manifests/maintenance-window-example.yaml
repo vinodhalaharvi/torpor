@@ -1,0 +1,36 @@
+---
+# Policy: when we are permitted to act.
+#
+# Separate from FirmwareRollout for the same reason a NetworkPolicy is separate
+# from a Pod — it is written by a different person, on a different schedule,
+# and it governs everything that touches these devices rather than one rollout.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: field-sensors-nightly
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      role: field-sensor
+
+  timezone: America/New_York
+
+  allow:
+    - cron: "0 2 * * *"
+      duration: 2h
+      reason: nightly maintenance window
+
+  deny:
+    - from: "2026-12-20T00:00:00Z"
+      until: "2027-01-05T00:00:00Z"
+      reason: holiday change freeze
+
+  # A window is about when to START. Aborting a firmware transfer at the
+  # boundary leaves a half-written device, and a half-written device is a
+  # brick.
+  allowInFlightToComplete: true
+
+  # Blast radius, not throughput. If the image turns out to be bad, this is how
+  # many devices are broken before somebody notices.
+  maxDevicesPerWindow: 10

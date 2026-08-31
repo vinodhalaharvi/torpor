@@ -131,10 +131,10 @@ rules:
     resources: [devices]
     verbs: [get, list, watch, update, patch]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries]
+    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries, maintenancewindows]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status]
+    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status, maintenancewindows/status]
     verbs: [get, update, patch]
   - apiGroups: [""]
     resources: [events]
@@ -348,4 +348,67 @@ spec:
                     Being briefly reachable is not the same as being
                     rotatable. A node surfacing for 30s a day cannot receive a
                     credential that takes two minutes to transfer.
+            status: {type: object, x-kubernetes-preserve-unknown-fields: true}
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: maintenancewindows.fleet.torpor.io
+spec:
+  group: fleet.torpor.io
+  scope: Namespaced
+  names: {kind: MaintenanceWindow, listKind: MaintenanceWindowList, plural: maintenancewindows, singular: maintenancewindow, shortNames: [mw, window]}
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Open,      type: boolean, jsonPath: .status.open}
+        - {name: Devices,   type: integer, jsonPath: .status.matchedDevices}
+        - {name: Next-Open, type: string,  jsonPath: .status.nextOpen}
+        - {name: Reason,    type: string,  jsonPath: .status.reason}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                selector: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                timezone:
+                  type: string
+                  description: >
+                    IANA name. Looks optional and is not: a window that
+                    silently means UTC will be wrong twice a year in every
+                    country with daylight saving, and it will be wrong at 2am.
+                allowInFlightToComplete:
+                  type: boolean
+                  description: >
+                    Default true. Aborting a firmware transfer at a window
+                    boundary leaves a half-written device, which is a brick.
+                    A window is about when to start.
+                maxDevicesPerWindow:
+                  type: integer
+                  description: >
+                    A blast-radius limit, not a rate limit. If an update turns
+                    out bad, this is how many devices break before anyone
+                    notices.
+                allow: &period
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      cron: {type: string}
+                      duration: {type: string}
+                      from: {type: string, format: date-time}
+                      until: {type: string, format: date-time}
+                      reason:
+                        type: string
+                        description: >
+                          Shown to whoever wonders why their rollout is
+                          waiting. "Why is nothing happening" is the question
+                          this object generates; the answer should be in it.
+                deny: *period
             status: {type: object, x-kubernetes-preserve-unknown-fields: true}
