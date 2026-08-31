@@ -242,6 +242,27 @@ that exercises different code from the real thing is a dry run that lies.
 a water utility, three pump houses, most on LoRa. Each object exists because the
 one before it left a question unanswered.
 
+## Not tied to ESPHome
+
+Nothing above the mapper knows ESPHome exists. `docs/device-contract.md` is
+what a device has to do to join a fleet — five things, four of which are
+publishing a string:
+
+1. publish sensor values
+2. publish what firmware it is **running**, not what it was told
+3. publish a retained birth, and set a will
+4. announce itself on boot
+5. accept a firmware URL and **pull** from it
+
+ESPHome is the reference implementation because it was what was on the desk. A
+Zephyr device on nRF implements the same contract; the first four items are an
+afternoon and the fifth is MCUmgr, which is also where the interesting BLE and
+Thread DFU work lives.
+
+The honest boundary: a device that cannot report what it is *running* cannot be
+managed by this system. Everything else degrades into `Unknown` and `Refused`,
+which are answers. That one is not.
+
 ## How the objects compose
 
 Nothing references anything by name. A `MaintenanceWindow` does not know which
