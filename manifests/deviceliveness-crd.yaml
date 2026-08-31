@@ -131,10 +131,10 @@ rules:
     resources: [devices]
     verbs: [get, list, watch, update, patch]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries, maintenancewindows]
+    resources: [devicelivenesses, firmwarerollouts, fleetdrifts, credentialexpiries, maintenancewindows, fleetqueries]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: ["fleet.torpor.io"]
-    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status, maintenancewindows/status]
+    resources: [devicelivenesses/status, firmwarerollouts/status, fleetdrifts/status, credentialexpiries/status, maintenancewindows/status, fleetqueries/status]
     verbs: [get, update, patch]
   - apiGroups: [""]
     resources: [events]
@@ -411,4 +411,45 @@ spec:
                           waiting. "Why is nothing happening" is the question
                           this object generates; the answer should be in it.
                 deny: *period
+            status: {type: object, x-kubernetes-preserve-unknown-fields: true}
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: fleetqueries.fleet.torpor.io
+spec:
+  group: fleet.torpor.io
+  scope: Namespaced
+  names: {kind: FleetQuery, listKind: FleetQueryList, plural: fleetqueries, singular: fleetquery, shortNames: [fq, query]}
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Matched,   type: integer, jsonPath: .status.matched}
+        - {name: Evaluated, type: integer, jsonPath: .status.evaluated}
+        - {name: Last-Run,  type: string,  jsonPath: .status.lastEvaluated}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                labels: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                limit:
+                  type: integer
+                  description: >
+                    Caps the device list; counts stay accurate. A query
+                    matching 5000 devices would otherwise write an object too
+                    large for etcd.
+                where:
+                  type: object
+                  description: >
+                    A conjunction — every field set must hold. Deliberately not
+                    an expression language: an operator at 3am should be able
+                    to tell what this selects without evaluating precedence.
+                  x-kubernetes-preserve-unknown-fields: true
             status: {type: object, x-kubernetes-preserve-unknown-fields: true}

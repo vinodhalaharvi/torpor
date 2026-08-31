@@ -1,0 +1,80 @@
+---
+# "Everything not on v42 that I can actually update right now."
+#
+# Two conditions, and the second is the one labels cannot express. Whether a
+# device can take a firmware image depends on what transports it has, which of
+# them are up this minute, and whether any of those can carry the payload.
+# None of that is something a person decided, so none of it can be a label —
+# and a label recording a fact the world controls is a label that will be wrong.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetQuery
+metadata:
+  name: drifted-and-fixable
+  namespace: default
+spec:
+  where:
+    runningConfigHash: {notIn: ["v42"]}
+    otaReachable: true
+
+---
+# The same drift question without the capability filter.
+#
+# Worth having both. The first is a work list; this is a fleet health number,
+# and the gap between them is the interesting quantity — "4 matched, 1
+# actionable now" says more than either figure alone.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetQuery
+metadata:
+  name: drifted-total
+  namespace: default
+spec:
+  where:
+    runningConfigHash: {notIn: ["v42"]}
+
+---
+# A truck schedule.
+#
+# Low battery AND no way to help remotely. Every device this matches is a site
+# visit, and knowing that a month out rather than on the day it dies is the
+# entire value.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetQuery
+metadata:
+  name: needs-site-visit
+  namespace: default
+spec:
+  where:
+    batteryBelowPercent: 20
+    otaCapable: false
+
+---
+# Devices quiet for longer than THEIR OWN expectation.
+#
+# Not a wall-clock threshold. A daily-checkin node silent for six hours is
+# fine; an every-30s node silent for six hours is gone. One number cannot
+# describe both, and a fleet-wide alert built on one will be wrong in both
+# directions simultaneously.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetQuery
+metadata:
+  name: overdue
+  namespace: default
+spec:
+  where:
+    silentBeyondExpected: true
+
+---
+# Declared WiFi, not currently on WiFi.
+#
+# The transport ladder made visible: these are the nodes waiting for a truck to
+# drive past. Not broken, not asleep — capable, and out of range of the door
+# that matters.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: FleetQuery
+metadata:
+  name: awaiting-wifi-window
+  namespace: default
+spec:
+  where:
+    transport: {equals: wifi}
+    reachableVia: {notIn: ["wifi"]}
