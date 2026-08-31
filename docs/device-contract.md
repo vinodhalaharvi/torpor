@@ -120,6 +120,43 @@ ota_pull(url);
 
 ---
 
+## Checking your work
+
+```bash
+make verify DEVICE=field-01
+```
+
+Connects to the broker, watches the device, and reports which items it
+satisfies. It generates nothing and knows nothing about firmware — the contract
+is behavioural, so the check is behavioural, and it works the same against
+ESPHome, Zephyr, or something you wrote yourself.
+
+```
+  ✔ publishes a retained status            field-07/status = online (retained)
+  ✔ publishes sensor values                temperature, humidity, battery_percent
+  ✔ reports what firmware it is RUNNING    "v41"
+  ✘ announces itself                       nothing retained on torpor/announce/field-07
+      one retained publish on connect. Without it, somebody types a
+      Device manifest by hand, and transcription is where node ids get swapped
+      would unlock: DeviceEnrollment
+
+  3 of 5.
+  Monitorable, with gaps. Everything unmarked above still works —
+  the missing pieces degrade into Unknown and Refused, which are answers.
+```
+
+The last line is the point. A partial implementation is a real and useful
+state, and saying so beats a pass/fail implying a device is worthless because
+it cannot take firmware. The only failure that is fatal is item 2 — a device
+that cannot report what it is running has nothing for a health gate to check.
+
+The firmware probe writes the hash the device **already reports**, so a
+conformant device correctly does nothing to its flash. What is being checked is
+whether it is subscribed and echoes state, not whether it will flash on demand.
+Verifying a device by making it flash would be a poor trade.
+
+---
+
 ## Optional, and what each unlocks
 
 | Publish | Unlocks |

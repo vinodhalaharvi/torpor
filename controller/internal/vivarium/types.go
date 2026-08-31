@@ -15,6 +15,7 @@ package vivarium
 
 import (
 	"fmt"
+	"strings"
 	"math/rand"
 	"time"
 )
@@ -205,10 +206,18 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	// Days first, since Go cannot parse them.
-	var days float64
-	if n, _ := fmt.Sscanf(s, "%fd", &days); n == 1 && days > 0 {
-		d.Duration = time.Duration(days * 24 * float64(time.Hour))
-		return nil
+	//
+	// The suffix check is not optional. fmt.Sscanf("5m", "%fd", &days) returns
+	// n=1 — %f matched the 5 — even though the literal 'd' never matched the
+	// 'm'. Without the check every duration in the file parsed as days, so
+	// "5m" became 120h and every device waited five days to say anything.
+	// The verifier found it in thirty seconds; nothing else had.
+	if strings.HasSuffix(s, "d") {
+		var days float64
+		if n, err := fmt.Sscanf(strings.TrimSuffix(s, "d"), "%f", &days); n == 1 && err == nil && days > 0 {
+			d.Duration = time.Duration(days * 24 * float64(time.Hour))
+			return nil
+		}
 	}
 	v, err := time.ParseDuration(s)
 	if err != nil {
