@@ -1,0 +1,46 @@
+---
+# A device leaves the fleet without pretending it never was.
+#
+# `kubectl delete device` is the obvious implementation and it is wrong three
+# ways at once. It loses the history — a device that ran four years and was
+# replaced is evidence about the model, the site and the deployment. It
+# corrupts every derived number, because a stolen device sits in Unreachable
+# forever and is counted forever. And it says nothing about why, when "stolen"
+# and "battery died" and "sold" call for entirely different follow-ups.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: DeviceDecommission
+metadata:
+  name: field-07-battery
+  namespace: default
+spec:
+  deviceRef: field-07
+  reason: BatteryExpired
+  detail: "cell at 2.1V, site visit 2026-08-14, not worth replacing at this site"
+
+  # The paperwork lags the event. Backdating stops three days of unexplained
+  # unreachability appearing in the drift history.
+  effectiveFrom: "2026-08-14T10:00:00Z"
+
+  replacement: field-07b
+
+  # Default. The device stops counting without ceasing to have existed —
+  # service life and final firmware are the things nobody has after a delete.
+  deleteDeviceObject: false
+
+---
+# Theft. Same object, different follow-up.
+apiVersion: fleet.torpor.io/v1alpha1
+kind: DeviceDecommission
+metadata:
+  name: field-22-stolen
+  namespace: default
+spec:
+  deviceRef: field-22
+  reason: Stolen
+  detail: "enclosure cut open, gateway logged last contact 03:14, police ref 2026-88131"
+  effectiveFrom: "2026-08-11T03:14:00Z"
+
+  # Default true, and the reason the default matters: a device removed for
+  # theft that keeps working credentials is a security problem rather than a
+  # bookkeeping one.
+  revokeCredentials: true

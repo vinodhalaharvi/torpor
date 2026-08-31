@@ -354,6 +354,20 @@ capability: ## What each device can do, per transport
 	@printf '\n'
 
 .PHONY: refused
+decommissioned: ## Devices that have left the fleet, and why
+	@kubectl get devicedecommission -n $(NAMESPACE) 2>/dev/null || \
+	  printf '  $(WARN) no DeviceDecommission objects\n'
+
+.PHONY: attrition
+attrition: ## Why devices leave — a procurement question, not an ops one
+	@kubectl get devicedecommission -n $(NAMESPACE) -o json 2>/dev/null | jq -r '
+	  [.items[] | select(.status.phase == "Complete")]
+	  | group_by(.spec.reason)[]
+	  | "\(.[0].spec.reason)\t\(length)"' \
+	  | awk -F'\t' 'BEGIN{printf "\n  %-18s %s\n","REASON","COUNT"} {printf "  %-18s %s\n",$$1,$$2} END{print ""}' \
+	  || printf '  $(OK) nothing decommissioned\n'
+
+.PHONY: templates
 templates: ## Device templates and what they generated
 	@kubectl get devicetemplate -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceTemplate objects\n'
@@ -417,7 +431,7 @@ refused: ## Why each device was refused or is pending — the planning result
 	    ((.status.pending // [])[] | "\($$r)  PENDING  \(.device)  \(.reason)  \(.detail)")' \
 	  | column -t -s'  ' || printf '  $(WARN) nothing to report\n'
 
-.PHONY: serve-fw rollout-demo rollouts capability templates template-drift queries blocked windows contact drift expiry refused liveness
+.PHONY: serve-fw rollout-demo rollouts capability decommissioned attrition templates template-drift queries blocked windows contact drift expiry refused liveness
 liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
