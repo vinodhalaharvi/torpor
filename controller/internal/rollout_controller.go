@@ -72,6 +72,44 @@ func (r *RolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.finish(ctx, ro, 30*time.Second)
 	}
 
+	// --- window ----------------------------------------------------------
+	//
+	// After planning and before dispatch, deliberately.
+	//
+	// After planning, because the refused list is a permanent fact about the
+	// fleet and an operator should see it even during a change freeze —
+	// knowing that eleven devices can never take this is useful in December
+	// and actionable in January.
+	//
+	// Before liveness, because a device that is awake during a freeze is still
+	// off limits. Reporting that as "pending, device asleep" sends somebody to
+	// debug a radio when the answer is "frozen until the 5th".
+	devLabels, err := DeviceLabelsFor(ctx, r.Client, ro)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	decision, err := EvaluateWindowsFor(ctx, r.Client, ro.Namespace, devLabels, time.Now())
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	proceed, windowBudget := ApplyWindow(ro, decision, time.Now())
+	if !proceed {
+		lg.V(1).Info("blocked", "rollout", ro.Name,
+			"window", decision.Window, "reason", decision.Reason)
+		// Requeue near the reopening rather than on a fixed tick, so a rollout
+		// blocked until 2am does not wake every thirty seconds all night.
+		requeue := time.Minute
+		if decision.NextOpen != nil {
+			if d := time.Until(*decision.NextOpen); d > time.Minute {
+				requeue = d
+				if requeue > 30*time.Minute {
+					requeue = 30 * time.Minute
+				}
+			}
+		}
+		return r.finish(ctx, ro, requeue)
+	}
+
 	// --- observe ---------------------------------------------------------
 	updated, healthy, failed := r.observe(ctx, ro, plan.Eligible)
 	ro.Status.Updated = int32(len(updated))
@@ -137,15 +175,23 @@ func (r *RolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if mc := int(ro.Spec.Strategy.MaxConcurrent); mc > 0 && budget > mc {
 		budget = mc
 	}
+	// The window's blast-radius limit is a ceiling on everything else. A
+	// strategy asking for 50 devices inside a window permitting 10 gets 10.
+	if windowBudget >= 0 && budget > int(windowBudget) {
+		budget = int(windowBudget)
+	}
 
+	dispatched := 0
 	for _, dev := range nextDevices(plan.Eligible, updated, budget) {
 		if err := r.dispatch(ctx, ro, dev); err != nil {
 			lg.Error(err, "dispatch failed", "device", dev)
 			continue
 		}
+		dispatched++
 		lg.Info("dispatched", "rollout", ro.Name, "device", dev,
-			"hash", ro.Spec.Source.ConfigHash)
+			"hash", ro.Spec.Source.ConfigHash, "window", decision.Window)
 	}
+	ro.Status.DispatchedThisWindow += int32(dispatched)
 	return r.finish(ctx, ro, 15*time.Second)
 }
 

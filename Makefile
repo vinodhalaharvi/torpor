@@ -354,6 +354,14 @@ capability: ## What each device can do, per transport
 	@printf '\n'
 
 .PHONY: refused
+blocked: ## Why any rollout is not proceeding, and until when
+	@kubectl get firmwarerollout -n $(NAMESPACE) -o json 2>/dev/null | jq -r '
+	  .items[] | select(.status.phase == "Blocked" or .status.phase == "Waiting")
+	  | "\(.metadata.name)\t\(.status.phase)\t\(.status.blockedBy // "-")\t\(.status.blockReason // "-")\t\(.status.nextWindow // "-")"' \
+	  | awk -F'\t' 'BEGIN{printf "\n  %-14s %-8s %-22s %-26s %s\n","ROLLOUT","PHASE","BLOCKED-BY","REASON","NEXT-WINDOW"} {printf "  %-14s %-8s %-22s %-26s %s\n",$$1,$$2,$$3,$$4,$$5} END{print ""}' \
+	  || printf '  $(WARN) nothing blocked\n'
+
+.PHONY: windows
 windows: ## Maintenance windows — open, and if not, when
 	@kubectl get maintenancewindow -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no MaintenanceWindow objects\n'
@@ -389,7 +397,7 @@ refused: ## Why each device was refused or is pending — the planning result
 	    ((.status.pending // [])[] | "\($$r)  PENDING  \(.device)  \(.reason)  \(.detail)")' \
 	  | column -t -s'  ' || printf '  $(WARN) nothing to report\n'
 
-.PHONY: serve-fw rollout-demo rollouts capability windows contact drift expiry refused liveness
+.PHONY: serve-fw rollout-demo rollouts capability blocked windows contact drift expiry refused liveness
 liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
