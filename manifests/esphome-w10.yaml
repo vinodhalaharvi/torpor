@@ -65,9 +65,6 @@ spec:
     # annotation rather than inventing a verb. Re-applying the manifest does
     # not replay the tone, which is what makes it safe under GitOps.
     - name: firmware_url
-      collectCycle: 10000            # ms
-      reportCycle: 10000             # ms
-      reportToCloud: true
       visitors:
         protocolName: esphome-mqtt
         configData:
@@ -76,9 +73,6 @@ spec:
           commandTopic: text/firmware_url/command
 
     - name: running_config_hash
-      collectCycle: 30000            # ms
-      reportCycle: 30000             # ms
-      reportToCloud: true
       visitors:
         protocolName: esphome-mqtt
         configData:
@@ -86,9 +80,6 @@ spec:
           topic: text_sensor/running_config_hash/state
 
     - name: uptime
-      collectCycle: 30000            # ms
-      reportCycle: 30000             # ms
-      reportToCloud: true
       visitors:
         protocolName: esphome-mqtt
         configData:
