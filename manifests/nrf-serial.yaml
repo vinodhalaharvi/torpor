@@ -1,0 +1,151 @@
+---
+# A Zephyr device, on a serial cable, in the same fleet as everything else.
+#
+# The point of this file is how ordinary it is. There is no `serial` protocol,
+# no bridge-aware field, nothing that distinguishes this from a device that
+# speaks MQTT natively — because by the time the mapper sees it, that is
+# exactly what it is. The bridge republishes on the device's own prefix and
+# the mapper cannot tell.
+#
+# Compare with lora-sensor.yaml, where field-01 needs `gateway` and `nodeID`
+# because a LoRa node has no topics of its own. A serial device does have
+# topics; something else just puts them on the wire.
+apiVersion: devices.kubeedge.io/v1beta1
+kind: DeviceModel
+metadata:
+  name: zephyr-serial
+  namespace: default
+spec:
+  protocol: esphome-mqtt
+  properties:
+    - name: temperature
+      description: synthetic — the DK has no sensor
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: "°C"
+
+    - name: humidity
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: "%"
+
+    - name: uptime
+      description: seconds since boot; a falling value is a boot loop
+      type: FLOAT
+      accessMode: ReadOnly
+      unit: s
+
+    - name: running_config_hash
+      description: what the device reports it is actually running
+      type: STRING
+      accessMode: ReadOnly
+
+    # Declared even though this firmware cannot act on it.
+    #
+    # The device echoes the command and refuses to flash — MCUmgr over SMP is
+    # not implemented. Declaring the property anyway is what lets a rollout
+    # plan against this device and report a reason, rather than the device
+    # being invisible to planning entirely. Refused is an answer; absent is not.
+    - name: firmware_url
+      description: "<hash>|<url> — echoed, not acted on. No MCUmgr yet."
+      type: STRING
+      accessMode: ReadWrite
+
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: nrf-01
+  namespace: default
+  labels:
+    model: zephyr-serial
+    role: field-sensor
+    transport: serial
+    # Deliberately not ota: "true". This device is monitorable and not
+    # updatable, and a rollout should refuse it on capability rather than
+    # attempt it and time out.
+    ota: "false"
+spec:
+  deviceModelRef:
+    name: zephyr-serial
+  nodeName: lima-edge
+
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: nrf-01
+      statusTopic: nrf-01/status
+
+      # Ten seconds, matching REPORT_INTERVAL_MS in the firmware. Silence
+      # beyond 30s means the serial cable is out — which the bridge reports
+      # by publishing the retained will, because a device on a cable cannot
+      # announce its own death.
+      expectedIntervalSeconds: 10
+      staleMultiplier: 3
+
+      # Declared capability. config: true because the device does accept and
+      # echo writes; ota: false because it has no path to pull an image.
+      #
+      # Not a gap being papered over — it is the honest state of a device
+      # whose DFU story is MCUmgr over SMP and is not written yet. torpor
+      # verify reports 4 of 5 for exactly this reason.
+      transports:
+        - type: serial
+          availability: always
+          config: true
+          ota: false
+          maxWriteBytes: 180        # the firmware's line buffer
+          staleAfterSeconds: 30
+
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/temperature/state
+
+    - name: humidity
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/humidity/state
+
+    - name: uptime
+      collectCycle: 30000
+      reportCycle: 30000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: float
+          topic: sensor/uptime/state
+
+    - name: running_config_hash
+      collectCycle: 30000
+      reportCycle: 30000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text_sensor/running_config_hash/state
+
+    - name: firmware_url
+      collectCycle: 30000
+      reportCycle: 30000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command

@@ -245,3 +245,30 @@ Serial output gets corrupted by resets and line noise. A malformed line costs
 one reading; a malformed JSON object costs a parse error and a decision about
 what to do with it. It is also readable in `tio` without a tool, which matters
 more during bring-up than elegance does.
+
+### It joins the fleet like anything else
+
+`manifests/nrf-serial.yaml` is the interesting part, and what makes it
+interesting is how ordinary it is. There is no `serial` protocol, no
+bridge-aware field, nothing distinguishing it from a device that speaks MQTT
+natively — because by the time the mapper sees it, that is exactly what it is.
+
+```yaml
+protocol:
+  protocolName: esphome-mqtt      # not "serial"
+  configData:
+    topicPrefix: nrf-01
+    transports:
+      - type: serial
+        config: true
+        ota: false                # no MCUmgr yet — refused, not attempted
+```
+
+`ota: false` is the honest state of a device whose DFU story is MCUmgr over SMP
+and is not written. A rollout refuses it with a reason rather than attempting
+it and timing out, which is the behaviour the whole capability model exists
+for — arrived at here from a direction nobody planned.
+
+Compare `lora-sensor.yaml`, where `field-01` needs `gateway` and `nodeID`
+because a LoRa node has no topics of its own. A serial device *does* have
+topics; something else just puts them on the wire.

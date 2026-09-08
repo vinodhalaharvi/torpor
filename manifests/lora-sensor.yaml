@@ -44,6 +44,28 @@ spec:
       accessMode: ReadOnly
       unit: "dB"
 
+    # Declared so the multi-transport field-01 can reference them.
+    #
+    # A property a Device uses must exist in its model, or the mapper receives
+    # a twin with a nil Property and dereferences it — which crash-loops the
+    # mapper and takes every other device on that node with it. make
+    # lint-manifests catches this before it reaches the cluster; the nil guard
+    # in device.go catches it if it gets there anyway.
+    - name: running_config_hash
+      description: what the device reports it is actually running
+      type: STRING
+      accessMode: ReadOnly
+
+    - name: firmware_url
+      description: "<hash>|<url> — refused over lora, which cannot carry it"
+      type: STRING
+      accessMode: ReadWrite
+
+    - name: tone_trigger
+      description: an action modelled as convergent state
+      type: STRING
+      accessMode: ReadWrite
+
 ---
 apiVersion: devices.kubeedge.io/v1beta1
 kind: Device
