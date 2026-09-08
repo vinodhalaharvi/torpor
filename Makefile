@@ -294,7 +294,15 @@ converge: ## Devices whose reported state has not caught up to desired
 	  | .metadata.name' || true
 
 .PHONY: apply
-sync: ## Apply models, then devices, in the order that works — use this, not kubectl apply
+lint-manifests: ## Every Device property must exist in its DeviceModel
+	@# A Device referencing a property its model does not declare leaves
+	@# twin.Property nil in the mapper, which crash-looped it and took every
+	@# other device on the node down. The nil guard stops the crash; this
+	@# stops the manifest reaching the cluster at all.
+	@python3 -c "$$LINT_PY"
+
+.PHONY: sync
+sync: lint-manifests ## Apply models, then devices, in the order that works — use this, not kubectl apply
 	@# Ordering is not a nicety here. Each step depends on the one before, and
 	@# every failure in this chain reports something misleading:
 	@#
@@ -365,7 +373,46 @@ why: ## What went wrong, from the one log that actually says
 apply: ## Apply device manifests from ./manifests (prefer `make sync`)
 	kubectl apply -f manifests/
 
-.PHONY: sync why v2
+define LINT_PY
+import glob, sys, yaml
+models, devices, bad = {}, [], 0
+for f in glob.glob("manifests/*.yaml"):
+    try:
+        docs = [d for d in yaml.safe_load_all(open(f)) if d]
+    except Exception as e:
+        print("  \033[31m!\033[0m %s: %s" % (f, e)); bad += 1; continue
+    for d in docs:
+        k = d.get("kind")
+        if k == "DeviceModel":
+            models[d["metadata"]["name"]] = {p["name"] for p in d["spec"].get("properties", [])}
+        elif k == "Device":
+            devices.append((f, d))
+for f, d in devices:
+    name = d["metadata"]["name"]
+    ref = d["spec"].get("deviceModelRef", {}).get("name", "")
+    have = models.get(ref)
+    if have is None:
+        continue
+    for p in d["spec"].get("properties", []):
+        if p["name"] not in have:
+            print("  \033[31m!\033[0m %s: %s uses %r, not in model %s" % (f, name, p["name"], ref))
+            bad += 1
+    cfg = d["spec"].get("protocol", {}).get("configData", {})
+    for key in ("expectedIntervalSeconds", "staleMultiplier", "nodeID"):
+        if isinstance(cfg.get(key), str):
+            print("  \033[31m!\033[0m %s: %s has %s quoted; it must be a number" % (f, name, key))
+            bad += 1
+    if not d["spec"].get("nodeName"):
+        print("  \033[31m!\033[0m %s: %s has no nodeName; it will never be delivered" % (f, name))
+        bad += 1
+if bad:
+    print("\n  %d problem(s). Each of these fails at the edge with a message that names something else.\n" % bad)
+    sys.exit(1)
+print("  \033[32m/\033[0m %d model(s), %d device(s), properties agree" % (len(models), len(devices)))
+endef
+export LINT_PY
+
+.PHONY: lint-manifests sync why v2
 v2: ## The two-transport view — one device with an IP, one without
 	@printf '\n  %-10s %-14s %-10s %-9s %s\n' NAME MODEL TRANSPORT LAST-SEEN TEMPERATURE
 	@printf '  %-10s %-14s %-10s %-9s %s\n' ---------- -------------- ---------- --------- -----------
