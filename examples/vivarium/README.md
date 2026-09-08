@@ -111,6 +111,21 @@ name, so adding a device to the file does not reshuffle every other device's
 behaviour. Reproducibility that breaks when you edit the config is not
 reproducibility.
 
+## Putting it under the control plane
+
+```bash
+make sync      # applies manifests/vivarium-devices.yaml among the rest
+make fleet
+```
+
+Seven of the nine devices have Device objects in
+`manifests/vivarium-devices.yaml`. Without them the vivarium is a broker full
+of traffic nobody is managing.
+
+`field-01` and `field-33` are absent on purpose — they are gateway-relayed, so
+their Device objects live in `lora-sensor.yaml` where `gateway` and `nodeID`
+belong.
+
 ## What it does not do
 
 It tests the controller against **your model of failure**. It will not find the
