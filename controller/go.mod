@@ -7,6 +7,7 @@ toolchain go1.22.2
 require (
 	github.com/eclipse/paho.mqtt.golang v1.4.3
 	github.com/mochi-mqtt/server/v2 v2.7.9
+	go.bug.st/serial v1.6.2
 	k8s.io/apimachinery v0.31.4
 	k8s.io/client-go v0.31.4
 	sigs.k8s.io/controller-runtime v0.19.3
@@ -16,6 +17,7 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/creack/goselect v0.1.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.0 // indirect

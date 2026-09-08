@@ -199,3 +199,49 @@ version register; the pull becomes a vendor OTA path or, more likely,
 **A device that cannot report what it is running cannot be managed by this
 system**, and that is the honest boundary. Everything else degrades gracefully
 into `Unknown` and `Refused`, which are answers. That one is not.
+
+---
+
+## A device with no network at all
+
+`firmware/nrf9160/` is the first implementation in this repo that is not
+ESPHome, and it has no way to reach a broker — the nRF9160 is a cellular part
+and there is no SIM in the board.
+
+So it speaks the contract over UART, one line per item, and `torpor-bridge`
+republishes to MQTT:
+
+```
+PUB <topic-suffix> <value>      device -> host
+SUB <topic-suffix> <value>      host -> device
+# anything                      diagnostics, ignored
+```
+
+```bash
+make bridge DEVICE=nrf-01 PORT=/dev/tty.usbmodem0009600198281
+```
+
+The bridge is a gateway in exactly the sense `w10-a` is a gateway for
+`field-01`: a device with no address of its own, surfaced through something
+that has one. That pattern is already in the model and nothing in the mapper
+changes.
+
+Two items move to the bridge, because only the bridge can know them. **The
+will** — a device on a serial cable cannot announce its own death, and the
+cable falling out is precisely the failure that matters. And **retention** — a
+device that booted before anyone was listening has still announced itself, and
+a controller starting later must still see it.
+
+### Why this is worth more than one board
+
+A serial bridge covers every serial-attached device: Modbus RTU, RS-485
+sensors, anything on a wire rather than a network. That is a whole class this
+project could not previously touch, and the nRF9160 is simply the first one to
+arrive without a network.
+
+### Not JSON
+
+Serial output gets corrupted by resets and line noise. A malformed line costs
+one reading; a malformed JSON object costs a parse error and a decision about
+what to do with it. It is also readable in `tio` without a tool, which matters
+more during bring-up than elegance does.

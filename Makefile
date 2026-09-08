@@ -48,6 +48,9 @@ W10B_IP            ?= 192.168.68.116
 # The mapper lives in this repo. It was briefly a standalone checkout, and the
 # stale default outlived that by a full day before anything called it.
 MAPPER_DIR         ?= $(CURDIR)/mapper/esphome
+
+# Nordic Connect SDK, for the nRF9160 contract firmware.
+NCS_ZEPHYR         ?= $(HOME)/ncs/v3.4.0/zephyr
 MAPPER_BIN         ?= esphome-mapper
 DMI_SOCKET         ?= /etc/kubeedge/dmi.sock
 
@@ -384,6 +387,20 @@ controller-gen: ## Regenerate deepcopy after changing any API type
 	cd controller && go run sigs.k8s.io/controller-tools/cmd/controller-gen object paths=./api/...
 
 .PHONY: controller-build
+bridge: ## Bridge a serial device onto the fleet: make bridge DEVICE=nrf-01 PORT=/dev/tty.usbmodem...
+	@[ -n "$(PORT)" ] || { printf '  $(BAD) PORT= required. Ports available:\n'; ls /dev/tty.usb* 2>/dev/null | sed 's/^/      /'; exit 1; }
+	cd controller && go run ./cmd/bridge \
+	  --device $(or $(DEVICE),nrf-01) --port $(PORT) --broker tcp://$(MAC_IP):1883 -v
+
+.PHONY: flash-nrf
+flash-nrf: ## Build and flash the nRF9160 contract firmware (needs the NCS shell)
+	@printf '  run this inside: nrfutil toolchain-manager launch --shell\n\n'
+	cd $(NCS_ZEPHYR) && west build -p -b nrf9160dk/nrf9160 \
+	  $(CURDIR)/firmware/nrf9160 -d /tmp/torpor \
+	  -- -DTORPOR_ID=$(or $(DEVICE),nrf-01) -DTORPOR_HASH=$(or $(HASH),a1b2c3d)
+	cd $(NCS_ZEPHYR) && west flash -d /tmp/torpor
+
+.PHONY: verify
 verify: ## Check whether a device satisfies the contract: make verify DEVICE=w10-a
 	cd controller && go run ./cmd/verify --device $(DEVICE) --broker tcp://$(MAC_IP):1883
 
@@ -542,7 +559,7 @@ liveness: ## The row Kubernetes cannot produce
 	@kubectl get liveness -n $(NAMESPACE) 2>/dev/null || \
 	  printf '  $(WARN) no DeviceLiveness objects — is the controller running?\n'
 
-.PHONY: controller-gen verify verify-vivarium vivarium vivarium-real plan plan-dir controller-build liveness-crd rbac
+.PHONY: controller-gen bridge flash-nrf verify verify-vivarium vivarium vivarium-real plan plan-dir controller-build liveness-crd rbac
 rbac: cloudcore-strategy ## Grant cloudcore access to the DeviceStatus CRD (1.23.1 chart omits it)
 	kubectl apply -f manifests/cloudcore-devicestatus-rbac.yaml
 	kubectl -n kubeedge rollout restart deploy/cloudcore
