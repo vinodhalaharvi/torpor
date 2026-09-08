@@ -1,0 +1,380 @@
+---
+# The emulated fleet, as Device objects.
+#
+# Seven of the nine devices `make vivarium` runs. Without these the vivarium is
+# a broker full of traffic nobody is managing — these are what put it under the
+# control plane, and what makes `make fleet` show ten devices when only three
+# exist physically.
+#
+# field-01 and field-33 are absent on purpose: they are gateway-relayed in the
+# vivarium fleet, and their Device objects live in lora-sensor.yaml where the
+# gateway and nodeID belong.
+#
+# Generated once and kept, rather than regenerated, because the exact shape
+# here is load-bearing — expectedIntervalSeconds must be a number, every
+# property must exist in esphome-w10, and nodeName must be set. All three were
+# learned by getting them wrong, and `make lint-manifests` now checks them.
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: gw-north
+  namespace: default
+  labels:
+    model: esphome-w10
+    role: field-sensor
+    transport: wifi
+    ota: "true"
+spec:
+  deviceModelRef:
+    name: esphome-w10
+  nodeName: lima-edge
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: gw-north
+      statusTopic: gw-north/status
+      # A number, not a string. Quoted, this fails to unmarshal into the
+      # driver's int field and kills the device with one line in the mapper
+      # journal while everything upstream looks healthy.
+      expectedIntervalSeconds: 60
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: sensor/temperature/state}
+
+    - name: running_config_hash
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: string, topic: text_sensor/running_config_hash/state}
+
+    - name: firmware_url
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-07
+  namespace: default
+  labels:
+    model: esphome-w10
+    role: field-sensor
+    transport: wifi
+    ota: "true"
+spec:
+  deviceModelRef:
+    name: esphome-w10
+  nodeName: lima-edge
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: field-07
+      statusTopic: field-07/status
+      # A number, not a string. Quoted, this fails to unmarshal into the
+      # driver's int field and kills the device with one line in the mapper
+      # journal while everything upstream looks healthy.
+      expectedIntervalSeconds: 60
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: sensor/temperature/state}
+
+    - name: running_config_hash
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: string, topic: text_sensor/running_config_hash/state}
+
+    - name: firmware_url
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-08
+  namespace: default
+  labels:
+    model: esphome-w10
+    role: field-sensor
+    transport: wifi
+    ota: "true"
+spec:
+  deviceModelRef:
+    name: esphome-w10
+  nodeName: lima-edge
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: field-08
+      statusTopic: field-08/status
+      # A number, not a string. Quoted, this fails to unmarshal into the
+      # driver's int field and kills the device with one line in the mapper
+      # journal while everything upstream looks healthy.
+      expectedIntervalSeconds: 60
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: sensor/temperature/state}
+
+    - name: running_config_hash
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: string, topic: text_sensor/running_config_hash/state}
+
+    - name: firmware_url
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-12
+  namespace: default
+  labels:
+    model: esphome-w10
+    role: field-sensor
+    transport: wifi
+    ota: "true"
+spec:
+  deviceModelRef:
+    name: esphome-w10
+  nodeName: lima-edge
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: field-12
+      statusTopic: field-12/status
+      # A number, not a string. Quoted, this fails to unmarshal into the
+      # driver's int field and kills the device with one line in the mapper
+      # journal while everything upstream looks healthy.
+      expectedIntervalSeconds: 60
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: sensor/temperature/state}
+
+    - name: running_config_hash
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: string, topic: text_sensor/running_config_hash/state}
+
+    - name: firmware_url
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-19
+  namespace: default
+  labels:
+    model: esphome-w10
+    role: field-sensor
+    transport: wifi
+    ota: "true"
+spec:
+  deviceModelRef:
+    name: esphome-w10
+  nodeName: lima-edge
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: field-19
+      statusTopic: field-19/status
+      # A number, not a string. Quoted, this fails to unmarshal into the
+      # driver's int field and kills the device with one line in the mapper
+      # journal while everything upstream looks healthy.
+      expectedIntervalSeconds: 60
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: sensor/temperature/state}
+
+    - name: running_config_hash
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: string, topic: text_sensor/running_config_hash/state}
+
+    - name: firmware_url
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-41
+  namespace: default
+  labels:
+    model: esphome-w10
+    role: field-sensor
+    transport: wifi
+    ota: "true"
+spec:
+  deviceModelRef:
+    name: esphome-w10
+  nodeName: lima-edge
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: field-41
+      statusTopic: field-41/status
+      # A number, not a string. Quoted, this fails to unmarshal into the
+      # driver's int field and kills the device with one line in the mapper
+      # journal while everything upstream looks healthy.
+      expectedIntervalSeconds: 60
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: sensor/temperature/state}
+
+    - name: running_config_hash
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: string, topic: text_sensor/running_config_hash/state}
+
+    - name: firmware_url
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command
+---
+apiVersion: devices.kubeedge.io/v1beta1
+kind: Device
+metadata:
+  name: field-55
+  namespace: default
+  labels:
+    model: esphome-w10
+    role: field-sensor
+    transport: wifi
+    ota: "true"
+spec:
+  deviceModelRef:
+    name: esphome-w10
+  nodeName: lima-edge
+  protocol:
+    protocolName: esphome-mqtt
+    configData:
+      broker: tcp://192.168.68.113:1883
+      topicPrefix: field-55
+      statusTopic: field-55/status
+      # A number, not a string. Quoted, this fails to unmarshal into the
+      # driver's int field and kills the device with one line in the mapper
+      # journal while everything upstream looks healthy.
+      expectedIntervalSeconds: 60
+  properties:
+    - name: temperature
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: float, topic: sensor/temperature/state}
+
+    - name: running_config_hash
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData: {dataType: string, topic: text_sensor/running_config_hash/state}
+
+    - name: firmware_url
+      collectCycle: 10000
+      reportCycle: 10000
+      reportToCloud: true
+      visitors:
+        protocolName: esphome-mqtt
+        configData:
+          dataType: string
+          topic: text/firmware_url/state
+          commandTopic: text/firmware_url/command

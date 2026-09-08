@@ -94,12 +94,21 @@ static void on_firmware_url(const char *value)
 	 * seconds — which is how this was discovered, with a tone replaying
 	 * forever on a board that was working exactly as instructed.
 	 */
+	/* Echo first, unconditionally — before the dedup check, before the
+	 * no-op check.
+	 *
+	 * The echo answers "did you receive this", and the guards below answer
+	 * "did you act on it". Echoing only when acting collapses those into one
+	 * signal, so a device correctly refusing a no-op looks identical to a
+	 * device that is dead. torpor verify caught exactly that: 4 of 5 with
+	 * "wrote to nrf-01/text/firmware_url/command and saw no state echo",
+	 * against firmware that was working precisely as designed. */
+	pub("text/firmware_url/state", value);
+
 	if (strncmp(value, last_firmware_token, sizeof(last_firmware_token)) == 0) {
 		return;
 	}
 	strncpy(last_firmware_token, value, sizeof(last_firmware_token) - 1);
-
-	pub("text/firmware_url/state", value);
 
 	const char *bar = strchr(value, '|');
 	if (!bar) {
@@ -231,6 +240,33 @@ int main(void)
 
 		snprintf(val, sizeof(val), "%lld", k_uptime_get() / 1000);
 		pub("sensor/uptime/state", val);
+
+		/* Identity, every cycle rather than only at boot.
+		 *
+		 * MQTT has retention. A serial line does not. A device that
+		 * announced itself before the bridge attached has, from the host's
+		 * point of view, never announced itself at all — and there is no
+		 * way to ask it again.
+		 *
+		 * The bridge republishes both of these retained, so the retention
+		 * semantics the contract asks for do hold end to end. But it can
+		 * only republish what it hears, which means the device has to keep
+		 * saying it. Cheap: two lines every ten seconds.
+		 *
+		 * This is the one place where a serial device genuinely differs
+		 * from an MQTT one, and it is worth the repetition rather than
+		 * teaching the bridge to poll. */
+		pub("status", "online");
+		{
+			char ann[256];
+			snprintf(ann, sizeof(ann),
+				 "{\"device\":\"%s\",\"model\":\"%s\",\"topicPrefix\":\"%s\","
+				 "\"configHash\":\"%s\",\"firmwareVersion\":\"zephyr\","
+				 "\"buildTime\":\"%s %s\"}",
+				 DEVICE_ID, DEVICE_MODEL, DEVICE_ID, FIRMWARE_HASH,
+				 __DATE__, __TIME__);
+			pub("announce", ann);
+		}
 
 		k_msleep(REPORT_INTERVAL_MS);
 	}
